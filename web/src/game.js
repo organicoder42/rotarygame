@@ -5,18 +5,26 @@
 // `state` is never mutated; the random generator's seed is part of the state,
 // so the same state + events + dt always give the same result.
 //
-// Events in (from the knob, the keyboard and the microphone):
-//   { type: 'turn', detents }  knob moved, clockwise positive
-//   { type: 'tap' }            fire a bolt
-//   { type: 'flip' }           flip the shield's polarity
-//   { type: 'hold' }           start / pause / resume / restart
-//   { type: 'pause' }          pause if playing (tab hidden, cable pulled)
-//   { type: 'mic', level }     calibrated loudness 0..1, kept until the next one
-//   { type: 'clap' }           sudden loud peak
+// One or two players share one arena and one core. Each player has their own
+// shield (on its own orbit radius), polarity, breath, combo and score. Player 0
+// is always there; player 1 joins and leaves through events. With one player
+// the game is the single-player game.
 //
-// Effects out (for haptics, particles and messages):
-//   start, pause, resume, flip, fire, pass, absorb, boltKill, shockwave,
-//   shockDenied, shockKill, breathOut, coreHit, gameOver
+// Events in. `player` is 0 or 1 and may be left out for player 0:
+//   { type: 'join', player }          the player enters the game
+//   { type: 'leave', player }         player 1 leaves again
+//   { type: 'turn', player, detents } knob moved, clockwise positive
+//   { type: 'tap', player }           fire a bolt
+//   { type: 'flip', player }          flip the shield's polarity
+//   { type: 'hold', player }          start / pause / resume / restart (either player)
+//   { type: 'pause' }                 pause if playing (tab hidden, cable pulled)
+//   { type: 'mic', player, level }    calibrated loudness 0..1, kept until the next one
+//   { type: 'clap', player }          sudden loud peak
+//
+// Effects out (for haptics, particles and messages). Those that belong to one
+// player carry `player`; coreHit and gameOver concern everybody:
+//   start, pause, resume, join, leave, flip, fire, pass, absorb, boltKill,
+//   shockwave, shockDenied, shockKill, breathOut, coreHit, gameOver
 
 import { ARENA, CONTROL, RULES } from './config.js';
 
@@ -26,6 +34,8 @@ export const PHASE = Object.freeze({
   PAUSED: 'paused',
   OVER: 'over',
 });
+
+export const MAX_PLAYERS = 2;
 
 const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
 const lerp = (a, b, t) => a * (1 - t) + b * t;
@@ -55,10 +65,16 @@ export function boltHalfWidthDeg() {
   return Math.max(RULES.BOLT_HALF_WIDTH_DEG, CONTROL.DETENT_DEG * 0.6);
 }
 
+/** Orbit radius of a player's shield: player 0 inside, player 1 outside. */
+export function shieldRadius(player) {
+  return ARENA.SHIELD_RADII[player] ?? ARENA.SHIELD_RADII[0];
+}
+
 /** Seconds between spawns at a given play time (before random jitter). */
-export function spawnInterval(time) {
+export function spawnInterval(time, players = 1) {
   const d = Math.min(difficulty(time), 1);
-  return lerp(RULES.SPAWN_INTERVAL_START_S, RULES.SPAWN_INTERVAL_END_S, d);
+  const base = lerp(RULES.SPAWN_INTERVAL_START_S, RULES.SPAWN_INTERVAL_END_S, d);
+  return players > 1 ? base * RULES.TWO_PLAYER_INTERVAL_FACTOR : base;
 }
 
 /** Inward speed of a spark spawned at a given play time (before jitter). */
@@ -66,32 +82,77 @@ export function sparkSpeed(time) {
   return lerp(RULES.SPARK_SPEED_START, RULES.SPARK_SPEED_END, difficulty(time));
 }
 
-/** A fresh game in the "ready" phase. */
+/** Indexes of the players that are in the game. */
+export function joinedPlayers(state) {
+  const out = [];
+  state.players.forEach((p, i) => {
+    if (p.joined) out.push(i);
+  });
+  return out;
+}
+
+/** Sum of all joined players' scores. */
+export function teamScore(state) {
+  return state.players.reduce((sum, p) => sum + (p.joined ? p.score : 0), 0);
+}
+
+/** Index of the joined player with the highest score, or -1 for a tie. */
+export function leader(state) {
+  const joined = joinedPlayers(state);
+  if (joined.length < 2) return joined[0] ?? 0;
+  const [a, b] = joined;
+  if (state.players[a].score === state.players[b].score) return -1;
+  return state.players[a].score > state.players[b].score ? a : b;
+}
+
+/** What one player's knob shows: own score, breath and polarity, shared health and phase. */
+export function hudValues(state, player) {
+  const p = state.players[player] ?? state.players[0];
+  return { score: p.score, health: state.health, breath: p.breath, phase: state.phase, polarity: p.polarity };
+}
+
+/** Which players should feel an effect: its own player, or everybody. */
+export function effectPlayers(effect, state) {
+  const joined = joinedPlayers(state);
+  if (Number.isInteger(effect.player)) return joined.includes(effect.player) ? [effect.player] : [];
+  return joined;
+}
+
+function createPlayer(index) {
+  return {
+    joined: index === 0,
+    score: 0,
+    breath: RULES.BREATH_MAX,
+    combo: 0,
+    bestCombo: 0,
+    polarity: index === 0 ? 1 : 0,
+    shieldTarget: index * 180,
+    shieldAngle: index * 180,
+    mic: 0,
+    blowing: false,
+    cooldown: 0,
+    stats: { absorbed: 0, bolted: 0, shocked: 0 },
+  };
+}
+
+/** A fresh single-player game in the "ready" phase. */
 export function createGame(seed = 1) {
+  const players = Array.from({ length: MAX_PLAYERS }, (_, i) => createPlayer(i));
   return {
     phase: PHASE.READY,
     seed: seed >>> 0,
     time: 0,
-    score: 0,
     health: RULES.HEALTH_MAX,
-    breath: RULES.BREATH_MAX,
-    combo: 0,
-    bestCombo: 0,
-    polarity: 1,
-    shieldTarget: 0,
-    shieldAngle: 0,
-    mic: 0,
-    blowing: false,
-    cooldown: 0,
+    players,
     spawnIn: RULES.START_GRACE_S,
     spawned: 0,
-    lastSpawnAngle: 0,
-    lastSpawnPolarity: 1,
+    // One stream of sparks per player, so with two players both get work.
+    streams: players.map((p) => ({ angle: p.shieldTarget, polarity: p.polarity, count: 0 })),
     nextId: 1,
     sparks: [],
     bolts: [],
     shocks: [],
-    stats: { absorbed: 0, bolted: 0, shocked: 0, hits: 0 },
+    stats: { hits: 0 },
   };
 }
 
@@ -107,6 +168,8 @@ export function step(prev, events = [], dt = 0) {
 function cloneState(p) {
   return {
     ...p,
+    players: p.players.map((x) => ({ ...x, stats: { ...x.stats } })),
+    streams: p.streams.map((x) => ({ ...x })),
     sparks: p.sparks.map((x) => ({ ...x })),
     bolts: p.bolts.map((x) => ({ ...x })),
     shocks: p.shocks.map((x) => ({ ...x })),
@@ -125,33 +188,54 @@ function rand(s) {
 
 function startRun(s) {
   const fresh = createGame(s.seed);
-  // The player keeps what their hands already set up.
-  fresh.polarity = s.polarity;
-  fresh.shieldTarget = s.shieldTarget;
-  fresh.shieldAngle = s.shieldAngle;
-  fresh.mic = s.mic;
-  fresh.lastSpawnAngle = s.shieldTarget;
+  // The players keep what their hands already set up.
+  fresh.players = s.players.map((p, i) => ({
+    ...createPlayer(i),
+    joined: p.joined,
+    polarity: p.polarity,
+    shieldTarget: p.shieldTarget,
+    shieldAngle: p.shieldAngle,
+    mic: p.mic,
+  }));
+  fresh.streams = fresh.players.map((p) => ({ angle: p.shieldTarget, polarity: p.polarity, count: 0 }));
   fresh.phase = PHASE.PLAYING;
   Object.assign(s, fresh);
 }
 
+function join(s, index) {
+  const first = s.players[0];
+  // The newcomer starts opposite player 0 with the other polarity, so the two
+  // shields are told apart at once and cover for each other.
+  const target = first.shieldTarget + 180;
+  s.players[index] = {
+    ...createPlayer(index),
+    joined: true,
+    polarity: first.polarity === 1 ? 0 : 1,
+    shieldTarget: target,
+    shieldAngle: target,
+  };
+  s.streams[index] = { angle: target, polarity: s.players[index].polarity, count: 0 };
+}
+
 function applyEvent(s, e, fx) {
   if (!e || typeof e.type !== 'string') return;
+  const index = e.player === 1 ? 1 : 0;
+  const p = s.players[index];
 
-  if (e.type === 'mic') {
-    s.mic = Number.isFinite(e.level) ? clamp(e.level, 0, 1) : 0;
+  if (e.type === 'join') {
+    if (!p.joined) {
+      join(s, index);
+      fx.push({ type: 'join', player: index });
+    }
     return;
   }
-  if (e.type === 'hold') {
-    if (s.phase === PHASE.READY || s.phase === PHASE.OVER) {
-      startRun(s);
-      fx.push({ type: 'start' });
-    } else if (s.phase === PHASE.PLAYING) {
-      s.phase = PHASE.PAUSED;
-      fx.push({ type: 'pause' });
-    } else {
-      s.phase = PHASE.PLAYING;
-      fx.push({ type: 'resume' });
+  if (e.type === 'leave') {
+    if (index !== 0 && p.joined) {
+      p.joined = false;
+      p.blowing = false;
+      p.mic = 0;
+      s.bolts = s.bolts.filter((b) => b.player !== index);
+      fx.push({ type: 'leave', player: index });
     }
     return;
   }
@@ -162,35 +246,58 @@ function applyEvent(s, e, fx) {
     }
     return;
   }
+  // Nothing else counts from somebody who is not in the game.
+  if (!p.joined) return;
 
-  // Everything else needs a live arena. In "ready" the player may try the
+  if (e.type === 'mic') {
+    p.mic = Number.isFinite(e.level) ? clamp(e.level, 0, 1) : 0;
+    return;
+  }
+  if (e.type === 'hold') {
+    if (s.phase === PHASE.READY || s.phase === PHASE.OVER) {
+      startRun(s);
+      fx.push({ type: 'start', player: index });
+    } else if (s.phase === PHASE.PLAYING) {
+      s.phase = PHASE.PAUSED;
+      fx.push({ type: 'pause', player: index });
+    } else {
+      s.phase = PHASE.PLAYING;
+      fx.push({ type: 'resume', player: index });
+    }
+    return;
+  }
+
+  // Everything else needs a live arena. In "ready" the players may try the
   // knob, the polarity and the bolt before starting.
   const live = s.phase === PHASE.PLAYING || s.phase === PHASE.READY;
   if (!live) return;
 
   switch (e.type) {
     case 'turn':
-      if (Number.isFinite(e.detents)) s.shieldTarget += e.detents * CONTROL.DETENT_DEG;
+      if (Number.isFinite(e.detents)) p.shieldTarget += e.detents * CONTROL.DETENT_DEG;
       break;
     case 'flip':
-      s.polarity = s.polarity === 1 ? 0 : 1;
-      fx.push({ type: 'flip', polarity: s.polarity });
+      p.polarity = p.polarity === 1 ? 0 : 1;
+      fx.push({ type: 'flip', player: index, polarity: p.polarity });
       break;
     case 'tap':
-      if (s.cooldown <= 0) {
-        s.bolts.push({ id: s.nextId++, a: s.shieldAngle, r: ARENA.SHIELD_R });
-        s.cooldown = RULES.BOLT_COOLDOWN_S;
-        fx.push({ type: 'fire', a: s.shieldAngle });
+      if (p.cooldown <= 0) {
+        s.bolts.push({ id: s.nextId++, player: index, a: p.shieldAngle, r: shieldRadius(index) });
+        p.cooldown = RULES.BOLT_COOLDOWN_S;
+        fx.push({ type: 'fire', player: index, a: p.shieldAngle });
       }
       break;
     case 'clap':
       if (s.phase !== PHASE.PLAYING) break;
-      if (s.breath >= RULES.SHOCK_COST) {
-        s.breath -= RULES.SHOCK_COST;
-        s.shocks.push({ id: s.nextId++, r: ARENA.CORE_R });
-        fx.push({ type: 'shockwave' });
+      // Both microphones hear the same clap: while a wave is still expanding
+      // a second one would cost breath and destroy nothing.
+      if (s.shocks.length > 0) break;
+      if (p.breath >= RULES.SHOCK_COST) {
+        p.breath -= RULES.SHOCK_COST;
+        s.shocks.push({ id: s.nextId++, player: index, r: ARENA.CORE_R });
+        fx.push({ type: 'shockwave', player: index });
       } else {
-        fx.push({ type: 'shockDenied' });
+        fx.push({ type: 'shockDenied', player: index });
       }
       break;
     default:
@@ -201,14 +308,17 @@ function applyEvent(s, e, fx) {
 function advance(s, dt, fx) {
   if (s.phase === PHASE.PAUSED) return;
 
-  // The shield glides towards its target so discrete detents feel fluid.
+  // The shields glide towards their targets so discrete detents feel fluid.
   const follow = 1 - Math.exp(-CONTROL.SHIELD_FOLLOW_PER_S * dt);
-  s.shieldAngle += (s.shieldTarget - s.shieldAngle) * follow;
-  if (Math.abs(s.shieldTarget - s.shieldAngle) < 0.01) s.shieldAngle = s.shieldTarget;
+  for (const p of s.players) {
+    if (!p.joined) continue;
+    p.shieldAngle += (p.shieldTarget - p.shieldAngle) * follow;
+    if (Math.abs(p.shieldTarget - p.shieldAngle) < 0.01) p.shieldAngle = p.shieldTarget;
+  }
 
   if (s.phase === PHASE.OVER) return;
 
-  s.cooldown = Math.max(0, s.cooldown - dt);
+  for (const p of s.players) p.cooldown = Math.max(0, p.cooldown - dt);
   moveBolts(s, dt, fx);
   if (s.phase !== PHASE.PLAYING) return;
 
@@ -220,42 +330,49 @@ function advance(s, dt, fx) {
 }
 
 function updateBreath(s, dt, fx) {
-  const loud = s.mic >= RULES.BREATH_MIN_LEVEL;
-  s.blowing = loud && s.breath > 0;
-  if (s.blowing) {
-    s.breath -= RULES.BREATH_DRAIN_PER_S * s.mic * dt;
-    if (s.breath <= 0) {
-      s.breath = 0;
-      fx.push({ type: 'breathOut' });
+  s.players.forEach((p, index) => {
+    if (!p.joined) return;
+    const loud = p.mic >= RULES.BREATH_MIN_LEVEL;
+    p.blowing = loud && p.breath > 0;
+    if (p.blowing) {
+      p.breath -= RULES.BREATH_DRAIN_PER_S * p.mic * dt;
+      if (p.breath <= 0) {
+        p.breath = 0;
+        fx.push({ type: 'breathOut', player: index });
+      }
+    } else if (!loud) {
+      p.breath = Math.min(RULES.BREATH_MAX, p.breath + RULES.BREATH_REFILL_PER_S * dt);
     }
-  } else if (!loud) {
-    s.breath = Math.min(RULES.BREATH_MAX, s.breath + RULES.BREATH_REFILL_PER_S * dt);
-  }
+  });
 }
 
 function spawnSparks(s, dt) {
   s.spawnIn -= dt;
   while (s.spawnIn <= 0) {
-    if (s.sparks.length < RULES.MAX_SPARKS) spawnSpark(s);
-    s.spawnIn += spawnInterval(s.time) * (0.8 + 0.4 * rand(s));
+    const joined = joinedPlayers(s);
+    if (s.sparks.length < RULES.MAX_SPARKS) spawnSpark(s, joined[s.spawned % joined.length]);
+    s.spawnIn += spawnInterval(s.time, joined.length) * (0.8 + 0.4 * rand(s));
   }
 }
 
-function spawnSpark(s) {
+function spawnSpark(s, owner) {
   const d = difficulty(s.time);
   const d1 = Math.min(d, 1);
+  const stream = s.streams[owner];
+  const player = s.players[owner];
   let a;
   let pol;
-  if (s.spawned === 0) {
-    // The first spark teaches "catch": close to the shield, same polarity.
-    a = s.shieldTarget + (rand(s) * 2 - 1) * 40;
-    pol = s.polarity;
+  if (stream.count === 0) {
+    // A stream's first spark teaches "catch": close to that player's shield,
+    // same polarity.
+    a = player.shieldTarget + (rand(s) * 2 - 1) * 40;
+    pol = player.polarity;
   } else {
     const wild = rand(s) < RULES.WILD_SPAWN_CHANCE_END * d1;
     const spread = lerp(RULES.SPAWN_SPREAD_START_DEG, RULES.SPAWN_SPREAD_END_DEG, d1);
-    a = wild ? rand(s) * 360 : s.lastSpawnAngle + (rand(s) * 2 - 1) * spread;
+    a = wild ? rand(s) * 360 : stream.angle + (rand(s) * 2 - 1) * spread;
     const same = rand(s) < lerp(RULES.SAME_POLARITY_START, RULES.SAME_POLARITY_END, d1);
-    pol = same ? s.lastSpawnPolarity : 1 - s.lastSpawnPolarity;
+    pol = same ? stream.polarity : 1 - stream.polarity;
   }
   const drift = (rand(s) * 2 - 1) * RULES.DRIFT_MAX_DEG_S * clamp((d - 0.3) / 0.7, 0, 1);
   s.sparks.push({
@@ -267,12 +384,13 @@ function spawnSpark(s) {
     drift,
   });
   s.spawned += 1;
-  s.lastSpawnAngle = a;
-  s.lastSpawnPolarity = pol;
+  stream.count += 1;
+  stream.angle = a;
+  stream.polarity = pol;
 }
 
-function addScore(s, points) {
-  s.score = Math.min(RULES.SCORE_MAX, s.score + points);
+function addScore(player, points) {
+  player.score = Math.min(RULES.SCORE_MAX, player.score + points);
 }
 
 function moveBolts(s, dt, fx) {
@@ -290,10 +408,11 @@ function moveBolts(s, dt, fx) {
       if (!hit || sp.r < hit.r) hit = sp;
     }
     if (hit) {
+      const shooter = s.players[b.player];
       s.sparks = s.sparks.filter((sp) => sp !== hit);
-      s.stats.bolted += 1;
-      addScore(s, RULES.BOLT_POINTS);
-      fx.push({ type: 'boltKill', a: hit.a, r: hit.r, polarity: hit.pol, points: RULES.BOLT_POINTS });
+      shooter.stats.bolted += 1;
+      addScore(shooter, RULES.BOLT_POINTS);
+      fx.push({ type: 'boltKill', player: b.player, a: hit.a, r: hit.r, polarity: hit.pol, points: RULES.BOLT_POINTS });
       continue;
     }
     b.r = to;
@@ -306,13 +425,14 @@ function expandShocks(s, dt, fx) {
   if (s.shocks.length === 0) return;
   const kept = [];
   for (const shock of s.shocks) {
+    const owner = s.players[shock.player];
     shock.r = Math.min(RULES.SHOCK_RADIUS, shock.r + RULES.SHOCK_SPEED * dt);
     const survivors = [];
     for (const sp of s.sparks) {
       if (sp.r <= shock.r) {
-        s.stats.shocked += 1;
-        addScore(s, RULES.SHOCK_POINTS);
-        fx.push({ type: 'shockKill', a: sp.a, r: sp.r, polarity: sp.pol, points: RULES.SHOCK_POINTS });
+        owner.stats.shocked += 1;
+        addScore(owner, RULES.SHOCK_POINTS);
+        fx.push({ type: 'shockKill', player: shock.player, a: sp.a, r: sp.r, polarity: sp.pol, points: RULES.SHOCK_POINTS });
       } else {
         survivors.push(sp);
       }
@@ -324,8 +444,12 @@ function expandShocks(s, dt, fx) {
 }
 
 function moveSparks(s, dt, fx) {
-  const push = s.blowing ? s.mic * RULES.PUSH_SPEED : 0;
+  // Everybody who blows adds to the push.
+  let push = 0;
+  for (const p of s.players) if (p.joined && p.blowing) push += p.mic * RULES.PUSH_SPEED;
   const arc = ARENA.SHIELD_HALF_ARC_DEG + ARENA.SHIELD_TOLERANCE_DEG;
+  // An incoming spark meets the outermost shield first.
+  const shields = joinedPlayers(s).sort((a, b) => shieldRadius(b) - shieldRadius(a));
   const survivors = [];
   let dead = false;
 
@@ -339,30 +463,37 @@ function moveSparks(s, dt, fx) {
     sp.r = Math.min(ARENA.RIM_R, sp.r + (outward - sp.speed) * dt);
     sp.a = wrapDeg(sp.a + sp.drift * dt);
 
-    const crossedShield = before > ARENA.SHIELD_R && sp.r <= ARENA.SHIELD_R;
-    if (crossedShield && Math.abs(angleDiff(sp.a, s.shieldAngle)) <= arc) {
-      if (sp.pol === s.polarity) {
-        const mult = multiplier(s.combo);
+    let absorbed = false;
+    for (const index of shields) {
+      const radius = shieldRadius(index);
+      const p = s.players[index];
+      if (!(before > radius && sp.r <= radius)) continue;
+      if (Math.abs(angleDiff(sp.a, p.shieldAngle)) > arc) continue;
+      if (sp.pol === p.polarity) {
+        const mult = multiplier(p.combo);
         const points = RULES.ABSORB_POINTS * mult;
-        s.combo += 1;
-        s.bestCombo = Math.max(s.bestCombo, s.combo);
-        s.stats.absorbed += 1;
-        addScore(s, points);
-        fx.push({ type: 'absorb', a: sp.a, r: ARENA.SHIELD_R, polarity: sp.pol, points, combo: s.combo, mult });
-        continue;
+        p.combo += 1;
+        p.bestCombo = Math.max(p.bestCombo, p.combo);
+        p.stats.absorbed += 1;
+        addScore(p, points);
+        fx.push({ type: 'absorb', player: index, a: sp.a, r: radius, polarity: sp.pol, points, combo: p.combo, mult });
+        absorbed = true;
+        break;
       }
-      fx.push({ type: 'pass', a: sp.a, r: ARENA.SHIELD_R, polarity: sp.pol });
+      fx.push({ type: 'pass', player: index, a: sp.a, r: radius, polarity: sp.pol });
     }
+    if (absorbed) continue;
 
     if (sp.r <= ARENA.CORE_R) {
       s.health = Math.max(0, s.health - RULES.CORE_DAMAGE);
-      s.combo = 0;
+      // The core is shared: a hit breaks everybody's combo.
+      for (const p of s.players) p.combo = 0;
       s.stats.hits += 1;
       fx.push({ type: 'coreHit', a: sp.a, polarity: sp.pol, health: s.health });
       if (s.health <= 0) {
         s.phase = PHASE.OVER;
-        s.blowing = false;
-        fx.push({ type: 'gameOver', score: s.score });
+        for (const p of s.players) p.blowing = false;
+        fx.push({ type: 'gameOver', score: teamScore(s), scores: s.players.map((p) => p.score) });
         dead = true;
       }
       continue;

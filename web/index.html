@@ -8,25 +8,70 @@
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="style.css">
 </head>
-<body data-phase="ready">
+<body data-phase="ready" data-players="1">
   <canvas id="arena" aria-label="Spillebanen"></canvas>
 
+  <div class="left">
   <header class="panel brand">
     <h1>EKKO</h1>
     <p class="tagline">Beskyt kernen. Drej, tryk og pust.</p>
-    <button id="connect" type="button">Forbind knappen</button>
-    <p id="status" class="status" data-state="idle" role="status">
-      <span class="dot" aria-hidden="true"></span>
-      <span id="status-text">Knappen er ikke forbundet – tastaturet virker</span>
-    </p>
+
+    <div class="slot">
+      <button id="connect-1" class="connect" type="button">Forbind knap 1</button>
+      <p id="status-1" class="status" data-state="idle" role="status">
+        <span class="dot" aria-hidden="true"></span>
+        <span id="status-text-1">Knap 1 er ikke forbundet – tastaturet virker</span>
+      </p>
+    </div>
+
+    <div class="slot slot-2">
+      <button id="connect-2" class="connect second" type="button">Tilslut knap 2</button>
+      <p id="status-2" class="status" data-state="idle" role="status">
+        <span class="dot" aria-hidden="true"></span>
+        <span id="status-text-2">Spiller 2: tilslut en knap til, eller tryk A D W S Q E</span>
+      </p>
+      <button id="remove-2" class="remove" type="button" hidden>Fjern spiller 2</button>
+    </div>
   </header>
 
+  <aside class="panel legend" aria-label="Sådan spiller du">
+    <h2>Sådan spiller du <span class="key-head">taster: spiller 1 · 2</span></h2>
+    <dl>
+      <div><dt>Drej knappen</dt><dd>Flyt dit skjold rundt om kernen</dd><span class="keys"><kbd>← →</kbd><kbd>A D</kbd></span></div>
+      <div><dt>Tryk på skærmen</dt><dd>Skyd et lyn – rammer alle gnister</dd><span class="keys"><kbd>Mellemrum</kbd><kbd>W</kbd></span></div>
+      <div><dt>Tryk på den lille cirkel</dt><dd>Skift dit skjolds polaritet</dd><span class="keys"><kbd>X</kbd><kbd>S</kbd></span></div>
+      <div><dt>Pust eller råb</dt><dd>Skub gnisterne væk – bruger pust</dd><span class="keys"><kbd>hold M</kbd><kbd>hold Q</kbd></span></div>
+      <div><dt>Klap</dt><dd>Chokbølge – koster et halvt pust</dd><span class="keys"><kbd>N</kbd><kbd>E</kbd></span></div>
+      <div><dt>Langt tryk</dt><dd>Start og pause – fra begge knapper</dd><span class="keys"><kbd>Enter</kbd></span></div>
+    </dl>
+    <p class="rule">
+      <span class="shape shape-filled" aria-hidden="true"></span> Fyldt skjold fanger fyldte gnister.<br>
+      <span class="shape shape-hollow" aria-hidden="true"></span> Hult skjold fanger hule gnister.<br>
+      Alt andet flyver lige igennem.
+    </p>
+    <p class="rule duo-rule">
+      To spillere: skjold <b>1</b> kredser inderst, skjold <b>2</b> yderst. Kernen er fælles – hvem scorer mest?
+    </p>
+    <p class="keys-note">Tasterne virker uden knap. <kbd>I</kbd> fejlsøgning · <kbd>F</kbd> fuld skærm</p>
+  </aside>
+  </div>
+
   <section class="panel hud" aria-label="Stilling">
-    <div class="score-label">Point</div>
-    <div id="score" class="score">0</div>
+    <div class="scores">
+      <div class="pscore">
+        <div class="score-label"><span class="solo-only">Point</span><span class="duo-only"><span class="badge">1</span> Spiller 1</span></div>
+        <div id="score-1" class="score">0</div>
+        <div id="combo-1" class="combo"></div>
+      </div>
+      <div class="pscore duo-only">
+        <div class="score-label"><span class="badge">2</span> Spiller 2</div>
+        <div id="score-2" class="score">0</div>
+        <div id="combo-2" class="combo"></div>
+      </div>
+    </div>
     <div class="score-meta">
-      <span id="combo" class="combo" hidden></span>
-      <span>Bedste <b id="best">0</b></span>
+      <span class="duo-only">Hold <b id="team">0</b></span>
+      <span><span class="solo-only">Bedste</span><span class="duo-only">Bedste hold</span> <b id="best">0</b></span>
     </div>
     <div class="meter">
       <span class="meter-name">Kerne</span>
@@ -34,34 +79,27 @@
       <span id="val-health" class="meter-value">100</span>
     </div>
     <div class="meter">
-      <span class="meter-name">Pust</span>
-      <span class="bar bar-breath"><span id="bar-breath" class="fill"></span></span>
-      <span id="val-breath" class="meter-value">100</span>
+      <span class="meter-name">Pust<span class="duo-only"> 1</span></span>
+      <span class="bar bar-breath"><span id="bar-breath-1" class="fill fill-breath"></span></span>
+      <span id="val-breath-1" class="meter-value">100</span>
+    </div>
+    <div class="meter duo-only">
+      <span class="meter-name">Pust 2</span>
+      <span class="bar bar-breath"><span id="bar-breath-2" class="fill fill-breath"></span></span>
+      <span id="val-breath-2" class="meter-value">100</span>
     </div>
     <div class="meter">
-      <span class="meter-name">Mikrofon</span>
-      <span class="bar"><span id="bar-mic" class="fill"></span></span>
+      <span class="meter-name"><span class="solo-only">Mikrofon</span><span class="duo-only">Mik 1</span></span>
+      <span class="bar"><span id="bar-mic-1" class="fill fill-mic"></span></span>
+      <span class="meter-value"></span>
+    </div>
+    <div class="meter duo-only">
+      <span class="meter-name">Mik 2</span>
+      <span class="bar"><span id="bar-mic-2" class="fill fill-mic"></span></span>
       <span class="meter-value"></span>
     </div>
   </section>
 
-  <aside class="panel legend" aria-label="Sådan spiller du">
-    <h2>Sådan spiller du</h2>
-    <dl>
-      <div><dt>Drej knappen</dt><dd>Flyt skjoldet rundt om kernen</dd><kbd>← →</kbd></div>
-      <div><dt>Tryk på skærmen</dt><dd>Skyd et lyn – rammer alle gnister</dd><kbd>Mellemrum</kbd></div>
-      <div><dt>Tryk på den lille cirkel</dt><dd>Skift skjoldets polaritet</dd><kbd>X</kbd></div>
-      <div><dt>Pust eller råb</dt><dd>Skub gnisterne væk – bruger pust</dd><kbd>hold M</kbd></div>
-      <div><dt>Klap</dt><dd>Chokbølge – koster et halvt pust</dd><kbd>N</kbd></div>
-      <div><dt>Langt tryk</dt><dd>Start og pause</dd><kbd>Enter</kbd></div>
-    </dl>
-    <p class="rule">
-      <span class="shape shape-filled" aria-hidden="true"></span> Fyldt skjold fanger fyldte gnister.<br>
-      <span class="shape shape-hollow" aria-hidden="true"></span> Hult skjold fanger hule gnister.<br>
-      Alt andet flyver lige igennem.
-    </p>
-    <p class="keys-note">Tasterne til højre virker uden knap. <kbd>D</kbd> fejlsøgning · <kbd>F</kbd> fuld skærm</p>
-  </aside>
 
   <div id="hint" class="hint" role="status" hidden></div>
   <div id="message" class="message" role="status"></div>

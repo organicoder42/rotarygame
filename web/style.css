@@ -42,9 +42,25 @@ html, body {
   backdrop-filter: blur(6px);
 }
 
-/* ---------- brand and connection ---------- */
+/* ---------- left column: connection on top, how-to at the bottom ---------- */
 
-.brand { top: var(--edge); left: var(--edge); }
+.left {
+  position: fixed;
+  z-index: 2;
+  left: var(--edge);
+  top: var(--edge);
+  bottom: var(--edge);
+  width: 272px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 12px;
+  pointer-events: none;
+}
+.left .panel { position: static; width: auto; pointer-events: auto; }
+.left .brand { flex: none; }
+/* If the window is too low the how-to is cut short; it never covers the status. */
+.left .legend { min-height: 0; overflow: hidden; }
 
 h1 {
   margin: 0;
@@ -57,7 +73,7 @@ h1 {
 
 .tagline { margin: 2px 0 12px; font-size: 14px; color: var(--ink-soft); }
 
-#connect {
+.connect {
   width: 100%;
   padding: 11px 14px;
   border: 0;
@@ -70,22 +86,46 @@ h1 {
   cursor: pointer;
   box-shadow: 0 0 22px rgba(232, 169, 60, 0.35);
 }
-#connect:hover { filter: brightness(1.08); }
-#connect:focus-visible { outline: 3px solid var(--lime); outline-offset: 2px; }
-#connect:disabled { opacity: 0.45; cursor: not-allowed; box-shadow: none; }
-#connect[data-connected="true"] {
+.connect:hover { filter: brightness(1.08); }
+.connect:focus-visible, .remove:focus-visible { outline: 3px solid var(--lime); outline-offset: 2px; }
+.connect:disabled { opacity: 0.45; cursor: not-allowed; box-shadow: none; }
+.connect[data-connected="true"] {
   background: transparent;
   color: var(--ink-soft);
   border: 1px solid var(--ink-faint);
   box-shadow: none;
   font-weight: 500;
 }
+/* The second knob is an invitation, not the main call to action. */
+.connect.second:not([data-connected="true"]) {
+  background: transparent;
+  color: var(--amber);
+  border: 1.5px solid var(--amber);
+  box-shadow: none;
+}
+.slot-2 { margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(243, 239, 239, 0.08); }
+.remove {
+  margin: 6px 0 0 18px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink-soft);
+  font: inherit;
+  font-size: 13px;
+  text-decoration: underline;
+  cursor: pointer;
+}
+.remove:hover { color: var(--ink); }
+
+/* Parts that only make sense alone or with two players. */
+body[data-players="1"] .duo-only { display: none !important; }
+body[data-players="2"] .solo-only { display: none !important; }
 
 .status {
   display: flex;
   align-items: flex-start;
   gap: 8px;
-  margin: 10px 0 0;
+  margin: 8px 0 0;
   font-size: 13px;
   line-height: 1.35;
   color: var(--ink-soft);
@@ -99,6 +139,7 @@ h1 {
   background: var(--ink-faint);
 }
 .status[data-state="ready"] { color: var(--lime); }
+.status[data-state="keyboard"] .dot { background: var(--amber); }
 .status[data-state="ready"] .dot { background: var(--lime); box-shadow: 0 0 10px var(--lime); }
 .status[data-state="connecting"] .dot,
 .status[data-state="handshake"] .dot { background: var(--amber); animation: blink 0.9s infinite; }
@@ -136,13 +177,32 @@ h1 {
   justify-content: space-between;
   align-items: baseline;
   min-height: 22px;
-  margin-bottom: 12px;
+  margin-bottom: 10px;
   font-size: 13px;
   color: var(--ink-soft);
   font-variant-numeric: tabular-nums;
 }
 .score-meta > span:last-child { margin-left: auto; }
-.combo { color: var(--amber); font-weight: 700; font-size: 15px; }
+.combo { min-height: 20px; color: var(--amber); font-weight: 700; font-size: 15px; font-variant-numeric: tabular-nums; }
+
+.scores { display: flex; gap: 14px; }
+.pscore { flex: 1; min-width: 0; }
+body[data-players="2"] .score { font-size: 40px; }
+body[data-players="2"] .score-label { letter-spacing: 0.06em; }
+body[data-players="2"] .pscore[data-lead="true"] .score { color: var(--amber); }
+.badge {
+  display: inline-block;
+  width: 18px;
+  height: 18px;
+  border: 1.5px solid var(--ink);
+  border-radius: 50%;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 15px;
+  letter-spacing: 0;
+  text-align: center;
+  color: var(--ink);
+}
 
 .meter {
   display: grid;
@@ -168,11 +228,11 @@ h1 {
   border-radius: 4px;
   background: var(--teal);
 }
+.bar .fill-breath { background: var(--lime); }
+.bar .fill-mic { background: var(--ink); }
 #bar-health[data-level="mid"] { background: var(--amber); }
 #bar-health[data-level="low"] { background: var(--red); }
-#bar-breath { background: var(--lime); }
-#bar-breath[data-ready="false"] { opacity: 0.5; }
-#bar-mic { background: var(--ink); }
+.fill-breath[data-ready="false"] { opacity: 0.5; }
 /* Notch at half: a clap needs at least this much breath. */
 .bar-breath::after {
   content: "";
@@ -186,8 +246,10 @@ h1 {
 
 /* ---------- how to play ---------- */
 
-.legend { left: var(--edge); bottom: var(--edge); }
-.legend h2 { margin: 0 0 8px; }
+.legend h2 { display: flex; justify-content: space-between; align-items: baseline; margin: 0 0 8px; }
+.key-head { font-size: 10px; font-weight: 500; letter-spacing: 0.02em; text-transform: none; color: rgba(243, 239, 239, 0.45); }
+.keys { grid-column: 2; grid-row: 1 / span 2; align-self: center; display: flex; gap: 4px; }
+.keys kbd + kbd { border-style: dashed; }
 .legend dl { margin: 0; }
 .legend dl > div {
   display: grid;
@@ -198,7 +260,6 @@ h1 {
 }
 .legend dt { font-size: 14px; font-weight: 700; color: var(--ink); }
 .legend dd { grid-column: 1; margin: 0; font-size: 13px; color: var(--ink-soft); }
-.legend dl kbd { grid-column: 2; grid-row: 1 / span 2; align-self: center; }
 
 kbd {
   display: inline-block;
@@ -270,9 +331,16 @@ body[data-phase="ready"] .message { top: 73%; }
   font-variant-numeric: tabular-nums;
 }
 .message .sub { font-size: clamp(12px, 1.9vmin, 15px); color: var(--ink-soft); }
+.message .duel { display: flex; justify-content: center; gap: clamp(24px, 6vmin, 56px); margin: 6px 0 10px; }
+.message .duel span { display: flex; flex-direction: column; font-size: clamp(13px, 2vmin, 16px); color: var(--ink-soft); }
+.message .duel b { font-size: clamp(30px, 6.5vmin, 58px); line-height: 1.1; color: var(--ink); font-variant-numeric: tabular-nums; }
+.message .lead { font-weight: 800; color: var(--amber); font-size: clamp(17px, 2.8vmin, 24px); }
 .message .cta { margin-top: 14px; animation: breathe 1.8s ease-in-out infinite; }
 
 @keyframes breathe { 50% { opacity: 0.55; } }
+
+/* Outside play the middle of the arena holds a message: hints move up. */
+body:not([data-phase="playing"]) .hint { top: 17%; }
 
 .hint {
   position: fixed;
@@ -313,17 +381,31 @@ body[data-phase="ready"] .message { top: 73%; }
 
 /* ---------- smaller windows ---------- */
 
+/* Low windows: the how-to shrinks so the two left panels do not meet. */
+@media (max-height: 989px) {
+  .legend dd { display: none; }
+  .legend dl > div { padding: 4px 0; }
+}
+
+@media (max-width: 1099px), (max-height: 789px) {
+  .legend dd, .rule, .keys-note { display: none; }
+  .legend dt { font-size: 13px; font-weight: 500; }
+  .legend dl > div { padding: 3px 0; }
+  .tagline { margin-bottom: 8px; }
+  .connect { padding: 8px 10px; font-size: 14px; }
+  .slot-2 { margin-top: 8px; padding-top: 8px; }
+}
+
 @media (max-width: 1099px) {
   .panel { width: 216px; padding: 10px 12px; }
+  .left { width: 216px; }
   h1 { font-size: 24px; }
-  .tagline { font-size: 12px; margin-bottom: 8px; }
-  #connect { font-size: 14px; padding: 9px 10px; }
-  .score { font-size: 38px; }
+  .tagline { font-size: 12px; }
+  .score, body[data-players="2"] .score { font-size: 32px; }
   .meter { grid-template-columns: 62px 1fr 26px; }
   .meter-name { font-size: 10px; letter-spacing: 0.06em; }
-  .legend dd, .rule, .keys-note { display: none; }
-  .legend dt { font-size: 12px; font-weight: 500; }
-  .legend dl > div { padding: 3px 0; }
+  .legend dt { font-size: 12px; }
+  .key-head { display: none; }
 }
 
 @media (max-width: 799px), (max-height: 520px) {

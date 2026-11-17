@@ -66,6 +66,20 @@ Example: `hud 1250 80 35 1 1`
 `effect` is a DRV2605L library waveform number 1..123. The device drops effects that arrive
 closer than 60 ms apart (the motor cannot render them, and the I2C bus is shared with touch).
 
+## Several devices (two players)
+
+Nothing on the wire changes. A second knob runs the same firmware and is a second, independent
+link: its own port, its own handshake, its own counters.
+
+- The host assigns player numbers in the order devices are connected, and a device that is
+  unplugged and plugged in again returns to the slot it had.
+- Each device gets its own `hud` line: that player's own `score`, `breath` and `pol`, and the
+  shared `health` and `phase`. The heartbeat and rate limits apply per device.
+- `hap` goes to the device of the player it concerns. A hit on the core and game over go to all.
+- A device does not know its player number; the big screen shows which shield belongs to whom.
+- Both microphones hear the same room. The host calibrates each one separately and does not try
+  to tell the players' voices apart.
+
 ## Dev test console (unchanged, for verification without a browser)
 
 `ping`, `state`, `snap`, `knob <±N>`, `tap`, `zone`, `hold`, `reset` keep working and reply with

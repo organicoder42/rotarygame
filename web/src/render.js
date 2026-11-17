@@ -2,7 +2,7 @@
 // decoration (particles, rings, floating numbers, screen shake). No rules here.
 
 import { ARENA, CONTROL, RULES } from './config.js';
-import { PHASE } from './game.js';
+import { PHASE, joinedPlayers, shieldRadius } from './game.js';
 
 /** The knob's own palette. */
 export const PALETTE = Object.freeze({
@@ -21,6 +21,8 @@ const POLARITY_COLOR = [PALETTE.lime, PALETTE.amber];
 const DEG = Math.PI / 180;
 const TAU = Math.PI * 2;
 const MAX_PARTICLES = 700;
+/** How long a shield pulses when its player joins or first turns the knob. */
+const JOIN_PULSE_S = 2.6;
 
 function rgba(hex, alpha) {
   const n = parseInt(hex.slice(1), 16);
@@ -52,9 +54,13 @@ export function createRenderer(canvas) {
   let micShown = 0;
   let shake = 0;
   let flash = 0;
-  let shieldFlash = 0;
   let coreFlash = 0;
-  let breathFlash = 0;
+  // Per player.
+  const shieldFlash = [0, 0];
+  const breathFlash = [0, 0];
+  const joinPulse = [0, 0];
+  const awaitingTurn = [false, false];
+  const lastTarget = [null, null];
 
   /** Unit arena coordinates (x right, y down, centre 0,0) of a polar point. */
   const ux = (a, r) => Math.sin(a * DEG) * r;
@@ -158,7 +164,7 @@ export function createRenderer(canvas) {
         case 'absorb':
           burst(e.a, e.r, POLARITY_COLOR[e.polarity], 12, 0.45);
           floatText(`+${e.points}`, e.a, e.r + 0.07, POLARITY_COLOR[e.polarity]);
-          shieldFlash = 1;
+          shieldFlash[e.player ?? 0] = 1;
           break;
         case 'boltKill':
           burst(e.a, e.r, PALETTE.ink, 10, 0.7);
@@ -172,10 +178,20 @@ export function createRenderer(canvas) {
           burst(e.a, e.r, PALETTE.ink, 4, 0.25);
           break;
         case 'fire':
-          burst(e.a, ARENA.SHIELD_R + 0.03, PALETTE.ink, 4, 0.3);
+          burst(e.a, shieldRadius(e.player ?? 0) + 0.03, PALETTE.ink, 4, 0.3);
           break;
         case 'flip':
-          shieldFlash = 0.7;
+          shieldFlash[e.player ?? 0] = 0.7;
+          break;
+        case 'join':
+          // The newcomer's shield pulses now; everybody's pulses again the
+          // first time they turn their knob, so each finds their own.
+          joinPulse[e.player] = JOIN_PULSE_S;
+          awaitingTurn.fill(true);
+          break;
+        case 'leave':
+          joinPulse.fill(0);
+          awaitingTurn.fill(false);
           break;
         case 'coreHit':
           burst(e.a, ARENA.CORE_R, PALETTE.red, 24, 0.8);
@@ -188,7 +204,7 @@ export function createRenderer(canvas) {
           break;
         case 'shockDenied':
         case 'breathOut':
-          breathFlash = 1;
+          breathFlash[e.player ?? 0] = 1;
           break;
         case 'gameOver':
           for (let i = 0; i < 10; i++) burst(i * 36, ARENA.CORE_R, i % 2 ? PALETTE.red : PALETTE.amber, 12, 1.3);
@@ -233,7 +249,7 @@ export function createRenderer(canvas) {
     while (ringClock >= 1) {
       ringClock -= 1;
       if (rings.length < 40) {
-        rings.push({ r: ARENA.CORE_R, speed: 0.22 + micShown * 0.95, alpha: 0.16 + micShown * 0.6, strong: state.blowing });
+        rings.push({ r: ARENA.CORE_R, speed: 0.22 + micShown * 0.95, alpha: 0.16 + micShown * 0.6, strong: state.players.some((p) => p.joined && p.blowing) });
       }
     }
     for (let i = rings.length - 1; i >= 0; i--) {
@@ -266,14 +282,16 @@ export function createRenderer(canvas) {
     ctx.shadowBlur = 0;
   }
 
-  function drawAim(state) {
+  function drawAim(state, index) {
     if (state.phase !== PHASE.PLAYING && state.phase !== PHASE.READY) return;
-    const a = state.shieldAngle;
-    ctx.strokeStyle = rgba(PALETTE.ink, state.cooldown > 0 ? 0.05 : 0.14);
+    const player = state.players[index];
+    const a = player.shieldAngle;
+    const from = shieldRadius(index) + 0.04;
+    ctx.strokeStyle = rgba(PALETTE.ink, player.cooldown > 0 ? 0.05 : 0.14);
     ctx.lineWidth = 1.5;
     ctx.setLineDash([R * 0.012, R * 0.028]);
     ctx.beginPath();
-    ctx.moveTo(px(a, ARENA.SHIELD_R + 0.04), py(a, ARENA.SHIELD_R + 0.04));
+    ctx.moveTo(px(a, from), py(a, from));
     ctx.lineTo(px(a, 0.97), py(a, 0.97));
     ctx.stroke();
     ctx.setLineDash([]);
@@ -332,7 +350,7 @@ export function createRenderer(canvas) {
     ctx.shadowBlur = R * 0.04;
     ctx.lineWidth = Math.max(2.5, R * 0.011);
     for (const b of state.bolts) {
-      const tail = Math.max(ARENA.SHIELD_R, b.r - 0.1);
+      const tail = Math.max(shieldRadius(b.player ?? 0), b.r - 0.1);
       ctx.beginPath();
       ctx.moveTo(px(b.a, tail), py(b.a, tail));
       ctx.lineTo(px(b.a, Math.min(b.r, 1.02)), py(b.a, Math.min(b.r, 1.02)));
@@ -341,53 +359,102 @@ export function createRenderer(canvas) {
     ctx.shadowBlur = 0;
   }
 
-  function drawShield(state) {
-    const a = state.shieldAngle;
+  /**
+   * One player's shield. Colour and fill show the polarity, so with two
+   * players the owner is shown by other means: the orbit (player 1 inside,
+   * player 2 outside), a numbered badge, and a pulse when the player joins
+   * and first turns the knob.
+   */
+  function drawShield(state, index, numbered) {
+    const player = state.players[index];
+    const radius = shieldRadius(index);
+    const a = player.shieldAngle;
     const half = ARENA.SHIELD_HALF_ARC_DEG;
-    const color = POLARITY_COLOR[state.polarity];
+    const color = POLARITY_COLOR[player.polarity];
+    const flashing = shieldFlash[index];
+    const pulsing = joinPulse[index] > 0;
+    const throb = pulsing ? 0.5 + 0.5 * Math.sin(clock * 13) : 0;
+
+    if (pulsing) {
+      ctx.strokeStyle = rgba(PALETTE.ink, 0.2 + 0.35 * throb);
+      ctx.lineCap = 'round';
+      ctx.lineWidth = R * (0.05 + 0.04 * throb);
+      arc(radius, a - half, a + half);
+    }
+
     ctx.shadowColor = color;
-    ctx.shadowBlur = R * (0.03 + 0.05 * shieldFlash);
+    ctx.shadowBlur = R * (0.03 + 0.05 * flashing);
     ctx.strokeStyle = color;
-    if (state.polarity === 1) {
+    if (player.polarity === 1) {
       // Filled polarity: one solid band.
       ctx.lineCap = 'round';
       ctx.lineWidth = Math.max(5, R * 0.03);
-      arc(ARENA.SHIELD_R, a - half, a + half);
+      arc(radius, a - half, a + half);
     } else {
       // Hollow polarity: the outline of the same band.
       const t = 0.014;
       ctx.lineCap = 'butt';
       ctx.lineWidth = Math.max(2, R * 0.008);
       ctx.beginPath();
-      ctx.arc(cx, cy, R * (ARENA.SHIELD_R + t), (a - half - 90) * DEG, (a + half - 90) * DEG);
-      ctx.arc(cx, cy, R * (ARENA.SHIELD_R - t), (a + half - 90) * DEG, (a - half - 90) * DEG, true);
+      ctx.arc(cx, cy, R * (radius + t), (a - half - 90) * DEG, (a + half - 90) * DEG);
+      ctx.arc(cx, cy, R * (radius - t), (a + half - 90) * DEG, (a - half - 90) * DEG, true);
       ctx.closePath();
       ctx.stroke();
     }
-    if (shieldFlash > 0.02) {
-      ctx.strokeStyle = rgba(PALETTE.ink, shieldFlash * 0.8);
+    if (flashing > 0.02) {
+      ctx.strokeStyle = rgba(PALETTE.ink, flashing * 0.8);
       ctx.lineCap = 'round';
       ctx.lineWidth = Math.max(3, R * 0.012);
-      arc(ARENA.SHIELD_R, a - half, a + half);
+      arc(radius, a - half, a + half);
     }
     ctx.shadowBlur = 0;
+    if (!numbered) return;
+
+    // Numbered badge in the middle of the arc.
+    const bx = px(a, radius);
+    const by = py(a, radius);
+    const size = Math.max(10, R * 0.03) * (1 + 0.45 * throb);
+    ctx.fillStyle = '#02120E';
+    ctx.strokeStyle = pulsing ? PALETTE.ink : color;
+    ctx.lineWidth = Math.max(2, R * 0.006);
+    ctx.beginPath();
+    ctx.arc(bx, by, size, 0, TAU);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = PALETTE.ink;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = `800 ${Math.round(size * 1.35)}px system-ui, -apple-system, "Segoe UI", sans-serif`;
+    ctx.fillText(String(index + 1), bx, by + size * 0.06);
+
+    if (pulsing) {
+      const lr = radius + 0.1;
+      ctx.font = `800 ${Math.max(14, Math.round(R * 0.05))}px system-ui, -apple-system, "Segoe UI", sans-serif`;
+      ctx.shadowColor = '#02120E';
+      ctx.shadowBlur = 8;
+      ctx.fillStyle = rgba(PALETTE.ink, Math.min(1, joinPulse[index] * 2));
+      ctx.fillText(`SPILLER ${index + 1}`, px(a, lr), py(a, lr));
+      ctx.shadowBlur = 0;
+    }
   }
 
-  function drawBreathArc(state) {
-    // A thin gauge hugging the core, clearly slimmer than the shield.
-    const r = 0.118;
-    const share = state.breath / RULES.BREATH_MAX;
-    const ready = state.breath >= RULES.SHOCK_COST;
+  /** A thin breath gauge hugging the core: player 1 inside, player 2 outside. */
+  function drawBreathArc(state, index) {
+    const player = state.players[index];
+    const r = index === 0 ? 0.118 : 0.152;
+    const share = player.breath / RULES.BREATH_MAX;
+    const ready = player.breath >= RULES.SHOCK_COST;
+    const flashing = breathFlash[index];
     ctx.lineCap = 'butt';
     ctx.lineWidth = Math.max(2, R * 0.0075);
     ctx.strokeStyle = rgba(PALETTE.ink, 0.1);
     arc(r, 0, 360);
     if (share > 0.004) {
-      const color = breathFlash > 0.05 ? PALETTE.red : PALETTE.lime;
+      const color = flashing > 0.05 ? PALETTE.red : PALETTE.lime;
       ctx.strokeStyle = rgba(color, ready ? 0.95 : 0.5);
       arc(r, 0, 360 * share);
-    } else if (breathFlash > 0.05) {
-      ctx.strokeStyle = rgba(PALETTE.red, breathFlash);
+    } else if (flashing > 0.05) {
+      ctx.strokeStyle = rgba(PALETTE.red, flashing);
       arc(r, 0, 360);
     }
     // Notch at the shockwave cost: above it a clap releases a shockwave.
@@ -400,7 +467,7 @@ export function createRenderer(canvas) {
     ctx.stroke();
   }
 
-  function drawCore(state) {
+  function drawCore(state, solo) {
     const alive = state.health > 0;
     const beat = 1 + 0.03 * Math.sin(clock * 3.2) + 0.1 * micShown;
     const haloR = R * ARENA.CORE_R * (2.4 + 2.2 * micShown);
@@ -430,8 +497,9 @@ export function createRenderer(canvas) {
     ctx.strokeStyle = coreFlash > 0.05 ? rgba(PALETTE.red, 0.5 + 0.5 * coreFlash) : rgba(healthColor(state.health), 0.95);
     ctx.stroke();
 
-    // The core shows the shield's polarity: the same shape the knob shows.
-    if (alive) drawPolarityShape(cx, cy, coreR * 0.36, state.polarity, 0);
+    // Alone, the core shows the shield's polarity: the same shape the knob
+    // shows. With two players each shield speaks for itself.
+    if (alive && solo) drawPolarityShape(cx, cy, coreR * 0.36, state.players[0].polarity, 0);
   }
 
   function drawParticles(dt) {
@@ -486,9 +554,19 @@ export function createRenderer(canvas) {
     const decay = (v, rate) => v * Math.exp(-dt * rate);
     shake = decay(shake, 9);
     flash = decay(flash, 7);
-    shieldFlash = decay(shieldFlash, 8);
     coreFlash = decay(coreFlash, 5);
-    breathFlash = decay(breathFlash, 3);
+    const joined = joinedPlayers(state);
+    for (let i = 0; i < shieldFlash.length; i++) {
+      shieldFlash[i] = decay(shieldFlash[i], 8);
+      breathFlash[i] = decay(breathFlash[i], 3);
+      joinPulse[i] = Math.max(0, joinPulse[i] - dt);
+      const target = state.players[i].shieldTarget;
+      if (awaitingTurn[i] && lastTarget[i] !== null && target !== lastTarget[i]) {
+        awaitingTurn[i] = false;
+        joinPulse[i] = JOIN_PULSE_S;
+      }
+      lastTarget[i] = target;
+    }
 
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.globalAlpha = 1;
@@ -503,12 +581,12 @@ export function createRenderer(canvas) {
     drawHealthRim(state);
     drawMicRings(state, view.micLevel, dt);
     drawShocks(state);
-    drawAim(state);
+    for (const i of joined) drawAim(state, i);
     drawSparks(state);
     drawBolts(state);
-    drawCore(state);
-    drawBreathArc(state);
-    drawShield(state);
+    drawCore(state, joined.length === 1);
+    for (const i of joined) drawBreathArc(state, i);
+    for (const i of joined) drawShield(state, i, joined.length > 1);
     drawParticles(animDt);
     drawFloats(animDt);
     ctx.restore();

@@ -16,7 +16,9 @@ export const CONTROL = Object.freeze({
 export const ARENA = Object.freeze({
   RIM_R: 1,
   CORE_R: 0.075,
-  SHIELD_R: 0.215,
+  /** Orbit radius of each player's shield: player 1 inside, player 2 outside,
+   *  so the two can pass each other. A spark meets the outer one first. */
+  SHIELD_RADII: Object.freeze([0.215, 0.3]),
   /** Half the angular width of the shield arc. */
   SHIELD_HALF_ARC_DEG: 30,
   /** Extra forgiveness at the shield's ends (covers the spark's own size). */
@@ -38,6 +40,9 @@ export const RULES = Object.freeze({
 
   SPAWN_INTERVAL_START_S: 1.5,
   SPAWN_INTERVAL_END_S: 0.45,
+  /** With two players the time between sparks is multiplied by this
+   *  (0.6 = two thirds more sparks), so both have work to do. */
+  TWO_PLAYER_INTERVAL_FACTOR: 0.6,
   SPARK_SPEED_START: 0.15,
   SPARK_SPEED_END: 0.3,
   /** A new spark appears within +-this many degrees of the previous one. */
@@ -155,7 +160,7 @@ export const LINK = Object.freeze({
   /** Contract: hud at most 10 times a second ... */
   HUD_MIN_INTERVAL_MS: 105,
   /** ... and at least once a second (sent a little early to absorb jitter). */
-  HUD_HEARTBEAT_MS: 900,
+  HUD_HEARTBEAT_MS: 800,
   /** Contract: the device drops effects closer than 60 ms apart. */
   HAP_MIN_GAP_MS: 70,
   /** A cue that waited longer than this is no longer worth playing. */
