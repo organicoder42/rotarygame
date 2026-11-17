@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="da">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>Ekko</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body data-phase="ready">
+  <canvas id="arena" aria-label="Spillebanen"></canvas>
+
+  <header class="panel brand">
+    <h1>EKKO</h1>
+    <p class="tagline">Beskyt kernen. Drej, tryk og pust.</p>
+    <button id="connect" type="button">Forbind knappen</button>
+    <p id="status" class="status" data-state="idle" role="status">
+      <span class="dot" aria-hidden="true"></span>
+      <span id="status-text">Knappen er ikke forbundet – tastaturet virker</span>
+    </p>
+  </header>
+
+  <section class="panel hud" aria-label="Stilling">
+    <div class="score-label">Point</div>
+    <div id="score" class="score">0</div>
+    <div class="score-meta">
+      <span id="combo" class="combo" hidden></span>
+      <span>Bedste <b id="best">0</b></span>
+    </div>
+    <div class="meter">
+      <span class="meter-name">Kerne</span>
+      <span class="bar"><span id="bar-health" class="fill"></span></span>
+      <span id="val-health" class="meter-value">100</span>
+    </div>
+    <div class="meter">
+      <span class="meter-name">Pust</span>
+      <span class="bar bar-breath"><span id="bar-breath" class="fill"></span></span>
+      <span id="val-breath" class="meter-value">100</span>
+    </div>
+    <div class="meter">
+      <span class="meter-name">Mikrofon</span>
+      <span class="bar"><span id="bar-mic" class="fill"></span></span>
+      <span class="meter-value"></span>
+    </div>
+  </section>
+
+  <aside class="panel legend" aria-label="Sådan spiller du">
+    <h2>Sådan spiller du</h2>
+    <dl>
+      <div><dt>Drej knappen</dt><dd>Flyt skjoldet rundt om kernen</dd><kbd>← →</kbd></div>
+      <div><dt>Tryk på skærmen</dt><dd>Skyd et lyn – rammer alle gnister</dd><kbd>Mellemrum</kbd></div>
+      <div><dt>Tryk på den lille cirkel</dt><dd>Skift skjoldets polaritet</dd><kbd>X</kbd></div>
+      <div><dt>Pust eller råb</dt><dd>Skub gnisterne væk – bruger pust</dd><kbd>hold M</kbd></div>
+      <div><dt>Klap</dt><dd>Chokbølge – koster et halvt pust</dd><kbd>N</kbd></div>
+      <div><dt>Langt tryk</dt><dd>Start og pause</dd><kbd>Enter</kbd></div>
+    </dl>
+    <p class="rule">
+      <span class="shape shape-filled" aria-hidden="true"></span> Fyldt skjold fanger fyldte gnister.<br>
+      <span class="shape shape-hollow" aria-hidden="true"></span> Hult skjold fanger hule gnister.<br>
+      Alt andet flyver lige igennem.
+    </p>
+    <p class="keys-note">Tasterne til højre virker uden knap. <kbd>D</kbd> fejlsøgning · <kbd>F</kbd> fuld skærm</p>
+  </aside>
+
+  <div id="hint" class="hint" role="status" hidden></div>
+  <div id="message" class="message" role="status"></div>
+  <pre id="debug" class="debug" hidden></pre>
+
+  <noscript><p class="noscript">Ekko kræver JavaScript.</p></noscript>
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>
