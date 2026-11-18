@@ -41,29 +41,25 @@ run_suite test_theme \
   "$ROOT/components/theme/theme.c" \
   -I"$HOST/stubs" -I"$ROOT/components/theme/include"
 
-# Chunked-upload part-plan math: equal non-last parts + remainder last.
-run_suite test_upload_plan \
-  "$HOST/test_upload_plan.c" \
-  "$ROOT/components/net/upload_plan.c" \
-  -I"$ROOT/components/net/include"
-
-# Admission rules of the on-device HTTP server: token, empty body, size ceiling.
-run_suite test_serve_gate \
-  "$HOST/test_serve_gate.c" \
-  "$ROOT/components/net/serve_gate.c" \
-  -I"$ROOT/components/net/include"
-
 # Ekko wire contract: host line parser (bad input, ranges, whitespace, \r) and the !s formatter.
 run_suite test_proto \
   "$HOST/test_proto.c" \
   "$ROOT/components/proto/proto.c" \
   -I"$ROOT/components/proto/include"
 
-# Serial line assembly: whole lines out, overlong or NUL-damaged lines dropped whole.
+# Line assembly for both transports: whole lines out, overlong or NUL-damaged lines dropped whole;
+# for Bluetooth LE also back-to-back 20-byte writes, a lone '\n', and the reset on disconnect.
 run_suite test_hostlink_line \
   "$HOST/test_hostlink_line.c" \
   "$ROOT/components/hostlink/hostlink_line.c" \
   -I"$ROOT/components/hostlink/include"
+
+# Bluetooth LE transport decisions: UUID bytes, the Ekko-XXXX name, a line cut to the ATT MTU,
+# a started line always finished, the buffer-pool gate.
+run_suite test_blelink_frame \
+  "$HOST/test_blelink_frame.c" \
+  "$ROOT/components/blelink/blelink_frame.c" \
+  -I"$ROOT/components/blelink"
 
 # Haptic spacing rule: effects closer than 60 ms apart are dropped.
 run_suite test_haptic_gate \

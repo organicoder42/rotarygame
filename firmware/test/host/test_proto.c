@@ -159,6 +159,29 @@ void test_console_commands_and_noise_are_unknown(void)
         TEST_ASSERT_EQUAL_INT_MESSAGE(PROTO_UNKNOWN, parse(LINES[i]), LINES[i]);
 }
 
+// PROTOCOL.md, Bluetooth LE: "the device ignores an empty line" (the host may send a lone '\n').
+// An empty line is not a command and not a damaged command either: it must not count as bad,
+// and `out` stays untouched. With "\r\n" the assembler leaves the '\r' in; same answer.
+void test_an_empty_line_is_nothing_at_all(void)
+{
+    static const char *const EMPTY[] = { "", "\r", " ", "\t", " \r" };
+    for (size_t i = 0; i < sizeof(EMPTY) / sizeof(EMPTY[0]); i++) {
+        TEST_ASSERT_EQUAL_INT(PROTO_UNKNOWN, parse(EMPTY[i]));
+        TEST_ASSERT_EQUAL_HEX8(0xEE, cmd.effect);
+        TEST_ASSERT_EQUAL_HEX8(0xEE, cmd.hud.phase);
+    }
+}
+
+// What a lone '\n' turns a half-sent command into. A fragment that lacks fields is rejected;
+// nothing of it is applied.
+void test_a_closed_fragment_of_a_hud_line_is_rejected(void)
+{
+    TEST_ASSERT_EQUAL_INT(PROTO_BAD, parse("hud 1250 8"));
+    TEST_ASSERT_EQUAL_INT(PROTO_BAD, parse("hud 1250 80 35 1"));
+    TEST_ASSERT_EQUAL_INT(PROTO_BAD, parse("hud"));
+    TEST_ASSERT_EQUAL_INT(PROTO_UNKNOWN, parse("hu"));
+}
+
 // ---- !s ----
 
 void test_state_line_contract_example(void)
@@ -216,6 +239,8 @@ int main(void)
     RUN_TEST(test_hap_range);
     RUN_TEST(test_hap_out_of_range_or_malformed_is_bad);
     RUN_TEST(test_console_commands_and_noise_are_unknown);
+    RUN_TEST(test_an_empty_line_is_nothing_at_all);
+    RUN_TEST(test_a_closed_fragment_of_a_hud_line_is_rejected);
     RUN_TEST(test_state_line_contract_example);
     RUN_TEST(test_state_line_extremes_fit_the_buffer);
     RUN_TEST(test_state_line_too_small_buffer_is_refused_not_cut);

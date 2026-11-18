@@ -114,9 +114,25 @@ void test_meter_reaches_zero(void)
     TEST_ASSERT_TRUE(ticks <= 25);       // within a second at 40 ms a tick
 }
 
+// ---- offline title: the Bluetooth name once the radio has one ----
+
+void test_offline_title_is_the_ble_name(void)
+{
+    static const char NAME[] = "Ekko-3A7F";
+    TEST_ASSERT_EQUAL_PTR(NAME, hud_view_offline_title(NAME));
+}
+
+void test_offline_title_is_the_app_name_until_the_radio_has_one(void)
+{
+    TEST_ASSERT_EQUAL_STRING("Ekko", hud_view_offline_title(""));
+    TEST_ASSERT_EQUAL_STRING("Ekko", hud_view_offline_title(NULL));
+}
+
 int main(void)
 {
     UNITY_BEGIN();
+    RUN_TEST(test_offline_title_is_the_ble_name);
+    RUN_TEST(test_offline_title_is_the_app_name_until_the_radio_has_one);
     RUN_TEST(test_each_phase_has_its_own_screen);
     RUN_TEST(test_no_link_is_offline_whatever_the_phase);
     RUN_TEST(test_phase_outside_the_contract_shows_ready);

@@ -20,6 +20,10 @@ void app_screen_build(void);
 // calling it every tick with unchanged values costs nothing. `hud` is read during the call.
 void app_screen_show(hud_view_t view, const proto_hud_t *hud);
 
+// The title line of the offline screen (hud_view_offline_title()). Cheap when the text is the
+// one already shown; `title` is copied.
+void app_screen_set_offline_title(const char *title);
+
 // The object that receives taps and long presses (the whole screen).
 lv_obj_t *app_screen_touch_target(void);
 

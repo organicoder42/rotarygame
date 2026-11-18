@@ -2,5 +2,5 @@
 idf_component_register(
     SRCS "app.c" "app_link.c" "app_screen.c" "app_screen_live.c" "hud_view.c"
     INCLUDE_DIRS "include"
-    REQUIRES ui theme haptic mic proto hostlink esp_timer
+    REQUIRES ui theme haptic mic proto hostlink blelink esp_timer
 )

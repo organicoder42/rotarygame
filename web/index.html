@@ -17,7 +17,12 @@
     <p class="tagline">Beskyt kernen. Drej, tryk og pust.</p>
 
     <div class="slot">
-      <button id="connect-1" class="connect" type="button">Forbind knap 1</button>
+      <div id="choose-1" class="choose" role="group" aria-labelledby="choose-label-1">
+        <span id="choose-label-1" class="choose-label">Forbind knap 1 med</span>
+        <button id="connect-usb-1" class="connect" type="button">Kabel</button>
+        <button id="connect-ble-1" class="connect" type="button">Bluetooth</button>
+      </div>
+      <button id="disconnect-1" class="connect" type="button" data-connected="true" hidden>Afbryd knap 1</button>
       <p id="status-1" class="status" data-state="idle" role="status">
         <span class="dot" aria-hidden="true"></span>
         <span id="status-text-1">Knap 1 er ikke forbundet – tastaturet virker</span>
@@ -25,13 +30,20 @@
     </div>
 
     <div class="slot slot-2">
-      <button id="connect-2" class="connect second" type="button">Tilslut knap 2</button>
+      <div id="choose-2" class="choose" role="group" aria-labelledby="choose-label-2">
+        <span id="choose-label-2" class="choose-label">Tilslut knap 2 med</span>
+        <button id="connect-usb-2" class="connect second" type="button">Kabel</button>
+        <button id="connect-ble-2" class="connect second" type="button">Bluetooth</button>
+      </div>
+      <button id="disconnect-2" class="connect" type="button" data-connected="true" hidden>Afbryd knap 2</button>
       <p id="status-2" class="status" data-state="idle" role="status">
         <span class="dot" aria-hidden="true"></span>
         <span id="status-text-2">Spiller 2: tilslut en knap til, eller tryk A D W S Q E</span>
       </p>
       <button id="remove-2" class="remove" type="button" hidden>Fjern spiller 2</button>
     </div>
+
+    <p id="transport-note" class="transport-note" hidden></p>
   </header>
 
   <aside class="panel legend" aria-label="Sådan spiller du">

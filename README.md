@@ -1,7 +1,8 @@
 # Ekko
 
 A small arcade game played in Chrome, with a Guition JC3636K518C round knob display (ESP32-S3)
-as the controller. The knob talks to the browser over USB with the Web Serial API.
+as the controller. The knob talks to the browser over USB (Web Serial) or wirelessly over Bluetooth LE (Web
+Bluetooth); the wire contract is in `PROTOCOL.md`.
 
 | On the knob | In the game |
 |---|---|

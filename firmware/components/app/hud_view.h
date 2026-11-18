@@ -50,6 +50,13 @@ theme_state_t hud_view_motion_state(hud_view_t view);
 // Points at a constant; never NULL.
 const char *hud_view_tag(hud_view_t view);
 
+// The title of the offline screen: the knob's Bluetooth name ("Ekko-3A7F"), which is what the
+// browser's device chooser lists, so that two knobs can be told apart; plain HUD_VIEW_APP_TITLE
+// while the radio has no name yet (`ble_name` "" or NULL). Returns `ble_name` itself or a
+// constant; never NULL.
+#define HUD_VIEW_APP_TITLE "Ekko"
+const char *hud_view_offline_title(const char *ble_name);
+
 // True while the last `hud` line is younger than HUD_LINK_TIMEOUT_MS. `seen` is false until
 // the first one arrives. Times are milliseconds that may wrap; only the difference is used.
 bool hud_view_link_alive(bool seen, uint32_t last_ms, uint32_t now_ms);

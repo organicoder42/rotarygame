@@ -1,9 +1,10 @@
 #pragma once
 // hostlink_line — assembles the byte stream from the host into lines. Pure C: no ESP-IDF,
-// FreeRTOS or LVGL includes; host-tested in test/host/test_hostlink_line.c.
+// FreeRTOS or LVGL includes; host-tested in test/host/test_hostlink_line.c. Shared by both
+// transports of PROTOCOL.md: hostlink (USB) and blelink (Bluetooth LE) each keep one state.
 // A line that does not fit, or that contains a NUL byte, is dropped WHOLE: its tail is never
-// handed out as if it were a line of its own (bytes get lost on this link, and the tail of a
-// damaged line can spell a command).
+// handed out as if it were a line of its own (bytes get lost on the USB link, and the tail of
+// a damaged line can spell a command).
 // Threading: one state per stream, used by one task. Zero-initialised = empty.
 #include <stdbool.h>
 #include <stddef.h>
@@ -21,3 +22,9 @@ typedef struct {
 // space), possibly empty. Returns NULL otherwise. The pointer is into `lb` and stays valid
 // until the next push; the caller may modify the text.
 char *hostlink_line_push(hostlink_line_t *lb, char c);
+
+// Forget everything received since the last '\n', including "skip the rest of a damaged line":
+// the sender is gone and whoever comes next starts a fresh line. Bluetooth LE calls this when
+// a central connects or disconnects (PROTOCOL.md: a stale fragment must not merge with the
+// first line of the next connection).
+void hostlink_line_reset(hostlink_line_t *lb);

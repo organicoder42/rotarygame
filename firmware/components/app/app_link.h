@@ -1,17 +1,25 @@
 #pragma once
 // app_link — everything the app says to and hears from the browser (private to the app
-// component). Out: the `!s` input-state line, written by a dedicated task so nothing else ever
-// waits for the serial port. In: `hello`, `hud`, `hap` from the host-link reader task.
-// It also owns the microphone peak-hold, because `m` in `!s` is "the loudest block since the
-// previous line". Depends on hostlink, proto, mic, haptic; never touches LVGL.
-// Threading: the count/poll/take functions are lock-free and never block; they are safe on the
+// component), over both transports of PROTOCOL.md at once: USB (hostlink) and Bluetooth LE
+// (blelink). Out: the `!s` input-state line, written by a dedicated reporter task so nothing
+// else ever waits for a transport; the same line goes out on both. In: `hello`, `hud`, `hap`
+// from either transport through one dispatch; `!hello` is answered on the transport the
+// `hello` came from. It also owns the microphone peak-hold, because `m` in `!s` is "the
+// loudest block since the previous line". Depends on hostlink, blelink, proto, mic, haptic;
+// never touches LVGL.
+// Threading: received lines arrive on two tasks, the USB reader and the NimBLE host task. The
+// dispatch only parses, stores atomics and wakes the reporter, so it is safe from both and
+// never makes the NimBLE host task wait; haptics and Bluetooth answers are done by the
+// reporter. The count/poll/take functions are lock-free and never block; they are safe on the
 // LVGL task. The LVGL task reads what arrived by polling; nothing here calls into the screen.
 #include <stdbool.h>
 #include <stdint.h>
 #include "proto.h"
 
-// Start the microphone, the reporter task and the host link. Returns false if the host link or
-// the reporter could not start (logged); a missing microphone only logs and reports -12000.
+// Start the microphone, the reporter task and both transports. Returns false if the USB link
+// or the reporter could not start (logged); a missing microphone only logs and reports -12000,
+// a Bluetooth link that does not start only logs and leaves the knob on USB. Needs
+// nvs_flash_init() to have run (the radio's calibration data).
 bool app_link_start(void);
 
 // Inputs. Each bumps its absolute counter and wakes the reporter, which sends a `!s` line at
@@ -39,10 +47,15 @@ int app_link_take_mic(void);
 // Protocol lines rejected since boot or the last reset (bad field count, range, syntax).
 unsigned app_link_bad_lines(void);
 
+// The name this knob advertises over Bluetooth, "Ekko-XXXX", or "" while the radio is still
+// starting or if it did not start. Never NULL; the pointer stays valid.
+const char *app_link_ble_name(void);
+
 // Console `reset`: counters back to 0 and the last `hud` forgotten. The host sees counters go
 // down, which the contract defines as "device rebooted: resynchronise".
 void app_link_reset(void);
 
-// Where lines that are not protocol go (the dev console); NULL = ignore them. The handler runs
-// on the host-link reader task; `line` is valid only during the call and may be modified.
+// Where lines from USB that are not protocol go (the dev console); NULL = ignore them. Lines
+// from Bluetooth never get there. The handler runs on the USB reader task; `line` is valid
+// only during the call and may be modified.
 void app_link_set_console(void (*handle)(char *line));

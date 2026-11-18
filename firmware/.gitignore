@@ -1,6 +1,3 @@
-# Never commit the real Wi-Fi credentials — copy wifi_secrets.example.h and fill it in locally.
-components/net/include/wifi_secrets.h
-
 # ESP-IDF build outputs and downloaded managed components (dependencies.lock IS committed).
 build/
 managed_components/

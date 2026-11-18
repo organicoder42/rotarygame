@@ -17,22 +17,40 @@ CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
 # QSPI bus is the bottleneck; -O2 is a measurable win on this panel.
 CONFIG_COMPILER_OPTIMIZATION_PERF=y
 
-# Custom partition table: 9 MB app + 4 MB SPIFFS + nvs. First flash MUST be over USB so the table
-# gets written; after that app-only flashes are fine.
+# Custom partition table: 9 MB app + 4 MB SPIFFS + nvs (the radio's calibration data). First
+# flash MUST be over USB so the table gets written; after that app-only flashes are fine.
 CONFIG_PARTITION_TABLE_CUSTOM=y
 CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
 
 # LVGL object pool: 128K. 64K is exhausted by a few screens' worth of widgets (lv_malloc returns
 # NULL → StoreProhibited). Backed by PSRAM (see CMakeLists.txt's LV_ATTRIBUTE_LARGE_RAM_ARRAY +
-# CONFIG_SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY below) — 128K of internal SRAM was starving lwIP's
-# TCP send buffer during an upload (measured: 8 KB free / 1536 B largest block at the stall).
+# CONFIG_SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY below): 128K of internal SRAM is what the Bluetooth
+# controller, the DMA draw buffers and the task stacks need.
 CONFIG_LV_MEM_SIZE=131072
 CONFIG_SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY=y
 
-# lwIP TCP send/recv window: the default 5760 B (~4x MSS) means many fill/drain cycles over Wi-Fi
-# for a multi-MB PUT. 16 KB each is only allocatable because LVGL's pool left internal RAM (above).
-CONFIG_LWIP_TCP_SND_BUF_DEFAULT=16384
-CONFIG_LWIP_TCP_WND_DEFAULT=16384
+# Bluetooth LE transport (components/blelink, PROTOCOL.md "Bluetooth LE (wireless)"): the NimBLE
+# host instead of the default Bluedroid, as a peripheral only (no central, no scanning, hence no
+# GATT client) with a single connection. Symbols checked against components/bt in IDF v5.3.
+CONFIG_BT_ENABLED=y
+CONFIG_BT_NIMBLE_ENABLED=y
+CONFIG_BT_NIMBLE_ROLE_CENTRAL=n
+CONFIG_BT_NIMBLE_ROLE_OBSERVER=n
+CONFIG_BT_NIMBLE_MAX_CONNECTIONS=1
+# The contract has no pairing, bonding or encryption: leave the whole security manager out. A
+# central that asks to pair is told "pairing not supported".
+CONFIG_BT_NIMBLE_SECURITY_ENABLE=n
+# Internal SRAM is the scarce pool on this board: the NimBLE host allocates its memory (mbuf
+# pools, connection and GATT tables) from PSRAM. The controller's memory and the task stacks
+# stay internal; IDF offers no choice there.
+CONFIG_BT_NIMBLE_MEM_ALLOC_MODE_EXTERNAL=y
+# Peripheral Preferred Connection Parameters as a central can read them from the GAP service:
+# 7.5-15 ms interval (x1.25 ms), latency 0, 2 s supervision timeout (x10 ms). blelink_gap.c asks
+# for the same after connecting (BLELINK_CONN_* in blelink_frame.h); keep the two in step.
+CONFIG_BT_NIMBLE_SVC_GAP_PPCP_MIN_CONN_INTERVAL=6
+CONFIG_BT_NIMBLE_SVC_GAP_PPCP_MAX_CONN_INTERVAL=12
+CONFIG_BT_NIMBLE_SVC_GAP_PPCP_SLAVE_LATENCY=0
+CONFIG_BT_NIMBLE_SVC_GAP_PPCP_SUPERVISION_TMO=200
 
 # Console on the S3's native USB Serial/JTAG (the port scripts/flash.sh uses) so the test console
 # (components/testctl) can READ commands there, not just log. UART0 is unused on this board.

@@ -5,12 +5,13 @@
   scripts/testctl.py knob +3 | knob -1 | tap | zone | hold | reset | ping
   scripts/testctl.py hud 1250 80 35 1 1    -> sends the protocol line (which has no reply),
                                               then prints the state; same for `hap 14`
+  scripts/testctl.py hello                 -> the handshake: prints the "!hello ekko 1" answer
   scripts/testctl.py snap out.png          -> LVGL framebuffer as PNG (needs ffmpeg)
 
 The port also carries the Ekko protocol (`!s ...` lines about 29 times a second) and the log;
 only lines starting with "> " are console replies.
 
-Exit code 0 on a "> ..." reply, 1 on timeout/error. Opens the port only for the call so the
+Exit code 0 on a "> ..." reply (for `hello`: on the "!hello" answer), 1 on timeout/error. Opens the port only for the call so the
 camera capture and other readers can use it between calls."""
 import base64, os, re, subprocess, sys, tempfile, time
 try:
@@ -35,16 +36,19 @@ def read_line(s, deadline):
             return ANSI.sub("", raw.decode(errors="replace")).rstrip("\r\n")
     return None
 
-NO_REPLY = ("hello", "hud", "hap")   # protocol commands: the firmware answers none with "> "
+NO_REPLY = ("hud", "hap")   # protocol commands the firmware answers with nothing at all
 
 def command(s, cmd, timeout=3.0):
+    # `hello` is the one protocol command with an answer, and it is a protocol line ("!hello
+    # ekko 1"), not a console reply; everything else answers with "> ...".
+    want = "!hello" if cmd.split()[0] == "hello" else "> "
     if cmd.split()[0] in NO_REPLY: cmd += "\nstate"
     s.write((cmd + "\n").encode()); s.flush()
     deadline = time.time() + timeout
     while True:
         line = read_line(s, deadline)
         if line is None: return None
-        if line.startswith("> "): return line[2:]
+        if line.startswith(want): return line[2:] if want == "> " else line
 
 SETTLE_S = float(os.environ.get("KNOB_SETTLE", "0.3"))   # let arc animations (160 ms) finish
 

@@ -40,6 +40,11 @@ const char *hud_view_tag(hud_view_t view)
     return (unsigned)view < HUD_VIEW_COUNT ? TAG[view] : "";
 }
 
+const char *hud_view_offline_title(const char *ble_name)
+{
+    return (ble_name && ble_name[0]) ? ble_name : HUD_VIEW_APP_TITLE;
+}
+
 bool hud_view_link_alive(bool seen, uint32_t last_ms, uint32_t now_ms)
 {
     return seen && (uint32_t)(now_ms - last_ms) < HUD_LINK_TIMEOUT_MS;

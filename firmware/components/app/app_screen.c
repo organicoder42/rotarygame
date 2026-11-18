@@ -8,8 +8,9 @@
 #include "app_screen.h"
 #include "theme.h"
 #include "fonts.h"
+#include <string.h>
 
-#define APP_TITLE   "Ekko"
+#define APP_TITLE   HUD_VIEW_APP_TITLE
 
 #define RING_W      6
 #define ARC_DIA     284
@@ -30,7 +31,7 @@
 static const char SCORE[] = "#";
 
 typedef struct {
-    bool        arc, tag, bars, title;
+    bool        arc, tag, bars, title;  // title: 28 px, "Ekko" or the Bluetooth name (offline only)
     const char *big;                    // 64 px line (digits and "Ekko" only); NULL = hidden
     const char *mid;                    // 28 px line
     const char *hint;                   // 20 px line
@@ -205,6 +206,13 @@ void app_screen_show(hud_view_t view, const proto_hud_t *hud)
     s_shown.view = view;
     s_shown.hud = *hud;
     s_shown.status = status;
+}
+
+// font_muli_28 holds ASCII 0x20-0x7E, so every character of "Ekko-XXXX" has a glyph (the 64 px
+// score font would not do: it has no '-' and no hex letters).
+void app_screen_set_offline_title(const char *title)
+{
+    if (strcmp(lv_label_get_text(s_title), title) != 0) lv_label_set_text(s_title, title);
 }
 
 lv_obj_t *app_screen_touch_target(void) { return lv_screen_active(); }

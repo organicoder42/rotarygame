@@ -23,6 +23,12 @@ check() {  # check <name> <command...> ; EXPECT holds the expected reply substri
   if [[ "$reply" != *"$EXPECT"* ]]; then echo "FAIL $name: got '$reply', want '$EXPECT'"; fail=1; else echo "ok   $name: $reply"; fi
 }
 
+check_re() {  # check_re <name> <extended regex> <command...> ; for replies that differ per device
+  local name="$1" re="$2"; shift 2
+  local reply; reply="$("$PY" "$TC" "$@")" || { echo "FAIL $name: $reply"; fail=1; return; }
+  if [[ "$reply" =~ $re ]]; then echo "ok   $name: ${BASH_REMATCH[0]}"; else echo "FAIL $name: got '$reply', want /$re/"; fail=1; fi
+}
+
 step() {   # check, then record the screen
   local name="$1"
   check "$@"
@@ -32,8 +38,15 @@ step() {   # check, then record the screen
 
 "$PY" "$TC" ping >/dev/null || { echo "device not answering on the test console"; exit 1; }
 
-# Boot state: nothing counted, no browser -> the "Ikke forbundet" screen.
+# The handshake over USB, answered on USB.
+EXPECT="!hello ekko 1"                                   check 00-hello         hello
+
+# Boot state: nothing counted, no browser -> the "Ikke forbundet" screen. Its title is the name
+# the knob advertises over Bluetooth, Ekko- plus the last two bytes of its address, so the
+# snapshot 00-offline.png must show the same name as this line. "ble=-" means the radio did not
+# start (the boot log says why).
 EXPECT="link=0 k=0 t=0 z=0 h=0"                          step 00-offline        reset
+check_re 00-ble-name 'ble=Ekko-[0-9A-F]{4}$' state
 
 # One composed screen per phase, each from its own hud line.
 EXPECT="link=1 k=0 t=0 z=0 h=0 score=0 health=100 breath=0 phase=0 pol=0"       step 01-ready         hud 0 100 0 0 0

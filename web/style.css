@@ -96,6 +96,20 @@ h1 {
   box-shadow: none;
   font-weight: 500;
 }
+.connect[hidden] { display: none; }
+/* Cable or Bluetooth: two buttons side by side under one small heading. */
+.choose { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 8px; }
+.choose[hidden] { display: none; }
+.choose-label {
+  grid-column: 1 / -1;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+.choose .connect { padding-left: 8px; padding-right: 8px; }
+.transport-note { margin: 10px 0 0; font-size: 11px; line-height: 1.35; color: rgba(243, 239, 239, 0.45); }
 /* The second knob is an invitation, not the main call to action. */
 .connect.second:not([data-connected="true"]) {
   background: transparent;
@@ -139,7 +153,9 @@ body[data-players="2"] .solo-only { display: none !important; }
   background: var(--ink-faint);
 }
 .status[data-state="ready"] { color: var(--lime); }
-.status[data-state="keyboard"] .dot { background: var(--amber); }
+.status[data-state="keyboard"] .dot,
+.status[data-state="reselect"] .dot { background: var(--amber); }
+.status[data-state="reselect"] { color: var(--amber); }
 .status[data-state="ready"] .dot { background: var(--lime); box-shadow: 0 0 10px var(--lime); }
 .status[data-state="connecting"] .dot,
 .status[data-state="handshake"] .dot { background: var(--amber); animation: blink 0.9s infinite; }
@@ -404,6 +420,7 @@ body:not([data-phase="playing"]) .hint { top: 17%; }
   .score, body[data-players="2"] .score { font-size: 32px; }
   .meter { grid-template-columns: 62px 1fr 26px; }
   .meter-name { font-size: 10px; letter-spacing: 0.06em; }
+  .choose-label { font-size: 10px; letter-spacing: 0.06em; }
   .legend dt { font-size: 12px; }
   .key-head { display: none; }
 }

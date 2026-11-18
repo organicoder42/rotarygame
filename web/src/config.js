@@ -171,3 +171,34 @@ export const LINK = Object.freeze({
   MAX_COUNT_STEP: 8,
   MAX_LINE_LENGTH: 512,
 });
+
+/** Bluetooth LE link: PROTOCOL.md, "Bluetooth LE (wireless)". */
+export const BLE = Object.freeze({
+  /** Nordic UART Service, used as a plain byte pipe. */
+  SERVICE_UUID: '6e400001-b5a3-f393-e0a9-e50e24dcca9e',
+  /** RX: host -> device (write, write without response). */
+  RX_UUID: '6e400002-b5a3-f393-e0a9-e50e24dcca9e',
+  /** TX: device -> host (notify). */
+  TX_UUID: '6e400003-b5a3-f393-e0a9-e50e24dcca9e',
+  /** Contract: never assume an MTU above 23, so at most 20 bytes per write. */
+  CHUNK_BYTES: 20,
+  /** false = write without response (lowest latency; a lost piece heals with
+   *  the next hud heartbeat). true = every piece is acknowledged by the knob,
+   *  which costs one or two connection intervals per piece. */
+  WRITE_WITH_RESPONSE: false,
+  /** A `hap` that has waited this long behind other writes is skipped: a cue
+   *  that arrives late is worse than none. Comes on top of HAP_MAX_AGE_MS. */
+  HAP_MAX_WAIT_MS: 100,
+  /** Lines other than hud/hap (in practice `hello`) that may wait at once. */
+  MAX_PENDING_LINES: 4,
+  /** A write that has not settled after this long means the link is dead. */
+  WRITE_TIMEOUT_MS: 3000,
+  /** So does this many failed writes in a row. */
+  MAX_WRITE_FAILURES: 5,
+  /** One connection attempt (connect, find the service, subscribe) may take
+   *  this long before it is abandoned and tried again. */
+  CONNECT_TIMEOUT_MS: 10000,
+  /** Wait before reconnection attempt 1, 2, 3 ...; the last value repeats
+   *  for as long as the page is open. */
+  RECONNECT_BACKOFF_MS: Object.freeze([250, 500, 1000, 2000, 4000]),
+});

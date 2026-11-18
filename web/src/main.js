@@ -3,12 +3,14 @@
 // calibration (mic.js) are pure; this file only moves data between them.
 //
 // There is one "slot" per player. A slot owns everything that belongs to one
-// knob: its serial link, counter decoder, hud and haptic pacing, microphone
-// calibration and its row in the status area.
+// knob: its link (cable or Bluetooth, see knoblink.js), counter decoder, hud
+// and haptic pacing, microphone calibration and its row in the status area.
 
+import { BleLink } from './ble.js';
 import { HAPTIC_CUES, KEYBOARD_MIC, MIC, RULES } from './config.js';
 import { PHASE, createGame, effectPlayers, hudValues, joinedPlayers, leader, multiplier, step, teamScore } from './game.js';
 import { attachKeyboard } from './keyboard.js';
+import { KnobLink } from './knoblink.js';
 import { createMic, micBeginCalibration, micIsCalibrating, micRawForLevel, micSample } from './mic.js';
 import { HapticLimiter, HudScheduler, InputDecoder, formatHap, formatHud, parseLine } from './protocol.js';
 import { createRenderer } from './render.js';
@@ -22,37 +24,56 @@ const el = {
   barHealth: $('bar-health'),
   valHealth: $('val-health'),
   remove2: $('remove-2'),
+  transportNote: $('transport-note'),
   message: $('message'),
   hint: $('hint'),
   debug: $('debug'),
 };
 
-/** Status line of knob `n` (1 or 2). `joined` = that player is in the game. */
-function statusText(n, state, detail, joined) {
+/**
+ * Status line of knob `n` (1 or 2).
+ * `kind` is the transport ('usb' | 'ble'), `name` the knob's own name where
+ * known (`Ekko-3F2A` over Bluetooth), `joined` = that player is in the game,
+ * `remembered` the wireless knob this player had before the page was reloaded.
+ */
+function statusText(n, { state, detail, kind, name }, joined, remembered) {
+  const ble = kind === 'ble';
+  const knob = name ?? `knap ${n}`;
+  const label = name ? `Knap ${n} (${name})` : `Knap ${n}`;
   switch (`${state}:${detail ?? ''}`) {
     case 'unsupported:':
       return n === 1
-        ? 'Denne browser har ikke Web Serial. Brug Chrome eller Edge på en computer – indtil da kan du spille med tastaturet.'
+        ? 'Denne browser kan hverken bruge kabel (Web Serial) eller Bluetooth. Brug Chrome eller Edge på en computer – indtil da kan du spille med tastaturet.'
         : 'Spiller 2 kan være med på tastaturet: A D W S Q E';
     case 'connecting:':
-      return 'Åbner forbindelsen …';
+      return ble ? `Forbinder til ${knob} …` : 'Åbner forbindelsen …';
+    case 'connecting:retry':
+      return `Kan ikke få fat i ${knob} – prøver igen. Har knappen strøm?`;
     case 'handshake:':
-      return `Knap ${n}: forbundet – venter på svar …`;
+      return `${label}: forbundet – venter på svar …`;
     case 'handshake:slow':
-      return `Porten er åben, men knap ${n} svarer ikke. Er Ekko-firmwaren lagt på?`;
+      return ble
+        ? `${label} er forbundet over Bluetooth, men svarer ikke. Er Ekko-firmwaren lagt på?`
+        : `Porten er åben, men knap ${n} svarer ikke. Er Ekko-firmwaren lagt på?`;
     case 'ready:':
-      return `Knap ${n} er forbundet`;
+      return ble ? `${label} er forbundet trådløst` : `Knap ${n} er forbundet`;
     case 'ready:version':
-      return `Knap ${n} svarer med en anden protokolversion – opdatér firmwaren`;
+      return `${label} svarer med en anden protokolversion – opdatér firmwaren`;
     case 'lost:':
-      return `Forbindelsen til knap ${n} røg – sæt kablet i igen`;
+      return ble
+        ? `Forbindelsen til ${knob} røg – forbinder igen af sig selv. Har knappen strøm?`
+        : `Forbindelsen til knap ${n} røg – sæt kablet i igen`;
     case 'error:busy':
       return 'Porten er optaget. Luk andre programmer, der bruger knappen (fx en seriel monitor), og prøv igen.';
     case 'error:taken':
       return `Den knap tilhører allerede spiller ${n === 1 ? 2 : 1} – vælg den anden på listen`;
     case 'error:open-failed':
       return 'Kunne ikke åbne porten – prøv igen';
+    case 'error:unavailable':
+      return 'Bluetooth er ikke tilgængelig. Er Bluetooth slået til, og har browseren lov til at bruge det?';
     default:
+      // The browser forgets a Bluetooth knob when the page is reloaded.
+      if (remembered) return `Siden er genindlæst, så den trådløse knap skal vælges igen: tryk Bluetooth og vælg ${remembered}`;
       if (n === 1) return 'Knap 1 er ikke forbundet – tastaturet virker';
       return joined ? 'Spiller 2 er med på tastaturet' : 'Spiller 2: tilslut en knap til, eller tryk A D W S Q E';
   }
@@ -85,7 +106,9 @@ const slots = [0, 1].map((index) => ({
   mic: createMic(),
   /** Counters are trusted only after the device answered `hello`. */
   helloSeen: false,
-  status: { state: 'idle', detail: undefined },
+  status: { state: 'idle', detail: undefined, kind: 'usb', name: null },
+  /** Name of the wireless knob this player had last (kept across reloads). */
+  remembered: loadText(`ekko.ble.${index + 1}`),
   slowHandshakeTimer: null,
   lastDeviceSample: -Infinity,
   lastKeyboardSample: -Infinity,
@@ -93,7 +116,9 @@ const slots = [0, 1].map((index) => ({
   wrongPolarityHints: 0,
   debug: { line: '–', state: null, micSource: 'tastatur', lineTimes: [], rejected: 0, lastHud: '–', lastHap: '–' },
   el: {
-    connect: $(`connect-${index + 1}`),
+    choose: $(`choose-${index + 1}`),
+    connect: { usb: $(`connect-usb-${index + 1}`), ble: $(`connect-ble-${index + 1}`) },
+    disconnect: $(`disconnect-${index + 1}`),
     status: $(`status-${index + 1}`),
     statusText: $(`status-text-${index + 1}`),
     score: $(`score-${index + 1}`),
@@ -114,6 +139,8 @@ let fps = 0;
 const isJoined = (index) => game.players[index].joined;
 const isDuo = () => joinedPlayers(game).length > 1;
 const isConnected = (slot) => ['connecting', 'handshake', 'ready'].includes(slot.link.state);
+/** Connected, or a wireless knob the page is still trying to get back. */
+const isHolding = (slot) => isConnected(slot) || (slot.link.kind === 'ble' && slot.link.state === 'lost');
 
 // ---------- persistence ----------
 
@@ -130,6 +157,25 @@ function saveBest(key, value) {
     localStorage.setItem(key, String(value));
   } catch {
     // private window: the record just lives until the tab closes
+  }
+}
+
+function loadText(key) {
+  try {
+    return localStorage.getItem(key) || null;
+  } catch {
+    return null;
+  }
+}
+
+/** Remembers (or with null forgets) which wireless knob a player uses. */
+function rememberKnob(slot, name) {
+  slot.remembered = name;
+  try {
+    if (name) localStorage.setItem(`ekko.ble.${slot.n}`, name);
+    else localStorage.removeItem(`ekko.ble.${slot.n}`);
+  } catch {
+    // private window: nothing to remember
   }
 }
 
@@ -170,7 +216,7 @@ function simulateMic(slot, now) {
   feedMic(slot, KEYBOARD_MIC.QUIET_CDB + (Math.random() * 2 - 1) * KEYBOARD_MIC.JITTER_CDB, now);
 }
 
-// ---------- serial links ----------
+// ---------- knob links ----------
 
 function onLine(slot, line) {
   // Lines still in flight after a disconnect must not bring the player back.
@@ -199,7 +245,8 @@ function onLine(slot, line) {
   feedMic(slot, msg.m, now);
 }
 
-function onStatus(slot, { state, detail }) {
+function onStatus(slot, status) {
+  const { state } = status;
   clearTimeout(slot.slowHandshakeTimer);
   if (state === 'handshake') {
     slot.helloSeen = false;
@@ -207,54 +254,81 @@ function onStatus(slot, { state, detail }) {
     slot.hud.reset();
     slot.haptics.reset();
     slot.slowHandshakeTimer = setTimeout(() => {
-      if (slot.link.state === 'handshake') showStatus(slot, 'handshake', 'slow');
+      if (slot.link.state === 'handshake') showStatus(slot, { ...status, detail: 'slow' });
     }, 4000);
   } else if (state !== 'ready' && state !== 'connecting') {
     slot.decoder.reset();
     // Do not let the game run on while a controller is gone.
     if (state === 'lost') pending.push({ type: 'pause' });
   }
-  showStatus(slot, state, detail);
+  // After a reload only a wireless knob has to be picked again by hand.
+  if (state === 'ready') rememberKnob(slot, status.kind === 'ble' ? (status.name ?? 'Ekko') : null);
+  showStatus(slot, status);
 }
 
 for (const slot of slots) {
   // Created in slot order: the serial shell hands a returning knob back to
-  // the slot that lost it.
-  slot.link = new SerialLink({
+  // the slot that lost it. A wireless knob stays with the link that chose it.
+  slot.link = new KnobLink({
+    transports: {
+      usb: (handlers) => new SerialLink(handlers),
+      ble: (handlers) => new BleLink(handlers),
+    },
     onLine: (line) => onLine(slot, line),
     onStatus: (status) => onStatus(slot, status),
   });
-  slot.el.connect.addEventListener('click', () => {
-    slot.el.connect.blur();
-    if (isConnected(slot)) slot.link.disconnect();
-    else slot.link.connect();
+  for (const kind of ['usb', 'ble']) {
+    const button = slot.el.connect[kind];
+    button.disabled = !slot.link.supports(kind);
+    if (button.disabled) button.title = kind === 'ble' ? 'Denne browser har ikke Web Bluetooth' : 'Denne browser har ikke Web Serial';
+    button.addEventListener('click', () => {
+      button.blur();
+      slot.link.connect(kind);
+    });
+  }
+  slot.el.disconnect.addEventListener('click', () => {
+    slot.el.disconnect.blur();
+    rememberKnob(slot, null);
+    slot.link.disconnect();
   });
+}
+
+// One transport missing: say why its button is greyed out. With both missing
+// the status line of knob 1 explains it.
+{
+  const usb = slots[0].link.supports('usb');
+  const ble = slots[0].link.supports('ble');
+  if (usb !== ble) {
+    el.transportNote.textContent = usb
+      ? 'Bluetooth er slået fra: denne browser har ikke Web Bluetooth. Kablet virker.'
+      : 'Kabel er slået fra: denne browser har ikke Web Serial. Bluetooth virker.';
+    el.transportNote.hidden = false;
+  }
 }
 
 el.remove2.addEventListener('click', () => {
   el.remove2.blur();
   const slot = slots[1];
+  rememberKnob(slot, null);
   if (isConnected(slot) || slot.link.state === 'lost') slot.link.disconnect();
   pending.push({ type: 'leave', player: 1 });
 });
 
-function showStatus(slot, state, detail) {
-  slot.status = { state, detail };
+function showStatus(slot, status) {
+  slot.status = status;
   refreshStatus(slot);
 }
 
 function refreshStatus(slot) {
-  const { state, detail } = slot.status;
-  const connected = isConnected(slot);
-  slot.el.status.dataset.state = state === 'idle' && slot.index === 1 && isJoined(1) ? 'keyboard' : state;
-  slot.el.statusText.textContent = statusText(slot.n, state, detail, isJoined(slot.index));
-  slot.el.connect.dataset.connected = String(connected);
-  slot.el.connect.textContent = connected
-    ? `Afbryd knap ${slot.n}`
-    : slot.index === 0
-      ? 'Forbind knap 1'
-      : 'Tilslut knap 2';
-  slot.el.connect.disabled = state === 'unsupported';
+  const { state } = slot.status;
+  const holding = isHolding(slot);
+  // 'reselect': a wireless knob has to be picked again after a reload.
+  slot.el.status.dataset.state =
+    state !== 'idle' ? state : slot.remembered ? 'reselect' : slot.index === 1 && isJoined(1) ? 'keyboard' : state;
+  slot.el.statusText.textContent = statusText(slot.n, slot.status, isJoined(slot.index), slot.remembered);
+  // Either the choice of transport, or the way out of the one in use.
+  slot.el.choose.hidden = holding;
+  slot.el.disconnect.hidden = !holding;
 }
 
 /** Sends what the contract allows right now, per knob: one haptic cue and/or its hud. */
@@ -461,7 +535,7 @@ function updateDebug(now) {
     const s = d.state;
     lines.push(
       `── KNAP ${slot.n} · spiller ${slot.n} ${p.joined ? 'er med' : 'er ikke med'} ──`,
-      `forbindelse  ${slot.link.state}${slot.helloSeen ? '' : '  (intet hello)'}`,
+      `forbindelse  ${slot.link.kind === 'ble' ? 'bluetooth' : 'kabel'} ${slot.link.state}${slot.link.name ? ` ${slot.link.name}` : ''}${slot.helloSeen ? '' : '  (intet hello)'}`,
       `sidste linje ${d.line}`,
       `!s k t z h m ${s ? `${s.k} ${s.t} ${s.z} ${s.h} ${s.m}` : '–'}`,
       `linjer/s     ${d.lineTimes.length}   afvist ${d.rejected}   resynk ${slot.decoder.resyncs}`,
@@ -470,6 +544,12 @@ function updateDebug(now) {
       `hud →        ${d.lastHud}`,
       `hap →        ${d.lastHap}   sendt ${slot.haptics.sent}   droppet ${slot.haptics.dropped}`,
     );
+    const q = slot.link.stats;
+    if (q) {
+      lines.push(
+        `ble-kø       venter ${q.waiting}   linjer ${q.lines}   hud erstattet ${q.replacedHud}   hap erstattet ${q.replacedHap} for gammel ${q.expiredHap}   fejl ${q.failed}   genforbundet ${q.reconnects}`,
+      );
+    }
   }
   lines.push(`spil         ${game.phase}  ${game.time.toFixed(1)} s  gnister ${game.sparks.length}  ${fps.toFixed(0)} fps`);
   el.debug.textContent = lines.join('\n');
@@ -534,6 +614,6 @@ document.addEventListener('visibilitychange', () => {
 });
 setInterval(() => pumpLinks(performance.now()), 250);
 
-for (const slot of slots) showStatus(slot, slot.link.state);
+for (const slot of slots) showStatus(slot, { state: slot.link.state, kind: slot.link.kind, name: null });
 slots[0].link.reconnectKnown();
 requestAnimationFrame(frame);

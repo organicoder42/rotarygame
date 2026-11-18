@@ -30,6 +30,8 @@ static void sync_screen(void)
     proto_hud_t hud;
     if (app_link_poll_hud(&hud)) s_hud = hud;
     s_connected = app_link_alive();
+    // The radio gets its name a moment after boot; until then the title is plain "Ekko".
+    app_screen_set_offline_title(hud_view_offline_title(app_link_ble_name()));
     app_screen_show(hud_view_for(s_connected, s_hud.phase), &s_hud);
 }
 
@@ -92,11 +94,13 @@ void app_state_line(char *buf, size_t cap)
     sync_screen();      // a `hud` sent just before `state` is in the reply and on the screen
     proto_state_t st;
     app_link_counts(&st);
-    int n = snprintf(buf, cap, "link=%d k=%ld t=%lu z=%lu h=%lu score=%lu health=%u breath=%u phase=%u pol=%u bad=%u",
+    const char *ble = app_link_ble_name();
+    int n = snprintf(buf, cap, "link=%d k=%ld t=%lu z=%lu h=%lu score=%lu health=%u breath=%u phase=%u pol=%u bad=%u ble=%s",
                      (int)s_connected, (long)st.knob, (unsigned long)st.taps,
                      (unsigned long)st.zone_taps, (unsigned long)st.holds,
                      (unsigned long)s_hud.score, (unsigned)s_hud.health, (unsigned)s_hud.breath,
-                     (unsigned)s_hud.phase, (unsigned)s_hud.pol, app_link_bad_lines());
+                     (unsigned)s_hud.phase, (unsigned)s_hud.pol, app_link_bad_lines(),
+                     ble[0] ? ble : "-");
     if (n < 0 || (size_t)n >= cap) snprintf(buf, cap, "error state line needs %d bytes", n + 1);
 }
 
